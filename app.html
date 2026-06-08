@@ -158,6 +158,8 @@ let state={
   results: _s?.results||{},
   currentImages:[],currentNote:'',currentColor:'',currentSize:'',
   currentClassifies:[],dragOver:false,dragSrcIdx:null,
+  anthropicKey: localStorage.getItem('anthropic_key')||'',
+  currentRefUrl:'',currentGenTitle:'',currentGenDesc:'',generating:false,
 };
 
 // ===== RENDER =====
@@ -185,6 +187,11 @@ function renderSetup(){
     <div>
       <div class="section-label">Push先リポジトリ</div>
       <input class="input-field" id="gh-repo" value="${state.githubRepo}">
+    </div>
+    <div>
+      <div class="section-label">Anthropic API Key（説明文生成用）</div>
+      <input class="input-field" id="anthropic-key" type="password" placeholder="sk-ant-xxxxx" value="${state.anthropicKey}">
+      <div style="font-size:11px;color:var(--muted);margin-top:5px;">未入力でも作業可（生成機能のみ無効）</div>
     </div>
     <div>
       <div class="section-label">CSVファイル（フェーズ1_縦積みまとめ）</div>
@@ -396,6 +403,29 @@ function renderWork(){
         <textarea class="info-input" id="note-input" placeholder="確認内容・メモなど...">${state.currentNote}</textarea>
       </div>
 
+      <!-- 説明文・タイトル生成 -->
+      <div style="border:1px solid #2a2a3a;border-radius:10px;padding:16px;background:#14141c;">
+        <div class="section-label" style="color:var(--accent2);">🤖 説明文・タイトル生成</div>
+        <div style="margin-bottom:10px;">
+          <div class="info-label">参照URL（商品ページ）</div>
+          <input class="info-input" id="ref-url-input" placeholder="https://... 商品ページのURL" value="${state.currentRefUrl}">
+        </div>
+        <button class="btn btn-primary" id="generate-btn" style="width:100%;${state.generating?'opacity:.6;':''}" ${state.generating?'disabled':''}>
+          ${state.generating?'生成中...':'✨ 生成する'}
+        </button>
+        ${state.currentGenTitle||state.currentGenDesc?`
+        <div style="margin-top:14px;display:flex;flex-direction:column;gap:10px;">
+          <div>
+            <div class="info-label">生成タイトル</div>
+            <textarea class="info-input" id="gen-title-input" style="min-height:50px;">${state.currentGenTitle}</textarea>
+          </div>
+          <div>
+            <div class="info-label">生成説明文</div>
+            <textarea class="info-input" id="gen-desc-input" style="min-height:200px;font-family:var(--mono);font-size:12px;">${state.currentGenDesc}</textarea>
+          </div>
+        </div>`:''}
+      </div>
+
       <!-- 次へボタン -->
       <div style="display:flex;gap:8px;padding-bottom:20px;">
         <button class="btn btn-primary" id="save-next-btn" style="flex:1;" ${cls.length===0?'disabled':''}>保存して次へ →</button>
@@ -465,6 +495,10 @@ function bindEvents(){
       document.getElementById('start-btn').disabled=!state.githubToken||state.items.length===0;
     });
     document.getElementById('gh-repo')?.addEventListener('input',e=>{state.githubRepo=e.target.value;});
+    document.getElementById('anthropic-key')?.addEventListener('input',e=>{
+      state.anthropicKey=e.target.value;
+      localStorage.setItem('anthropic_key',e.target.value);
+    });
     document.getElementById('csv-input')?.addEventListener('change',e=>loadCSV(e.target.files[0]));
     document.getElementById('start-btn')?.addEventListener('click',()=>{state.screen='work';render();});
     const drop=document.getElementById('csv-drop');
@@ -480,6 +514,10 @@ function bindEvents(){
     document.getElementById('skip-btn')?.addEventListener('click',()=>navigateTo(state.currentIndex+1));
     document.getElementById('save-next-btn')?.addEventListener('click',saveAndNext);
     document.getElementById('note-input')?.addEventListener('input',e=>{state.currentNote=e.target.value;});
+    document.getElementById('ref-url-input')?.addEventListener('input',e=>{state.currentRefUrl=e.target.value;});
+    document.getElementById('gen-title-input')?.addEventListener('input',e=>{state.currentGenTitle=e.target.value;});
+    document.getElementById('gen-desc-input')?.addEventListener('input',e=>{state.currentGenDesc=e.target.value;});
+    document.getElementById('generate-btn')?.addEventListener('click',generateDescription);
     document.getElementById('color-input')?.addEventListener('input',e=>{state.currentColor=e.target.value;});
     document.getElementById('size-input')?.addEventListener('input',e=>{state.currentSize=e.target.value;});
     document.getElementById('push-btn')?.addEventListener('click',pushToGitHub);
@@ -610,9 +648,13 @@ function navigateTo(idx){
     state.currentColor=r.color||'';
     state.currentSize=r.size||'';
     state.currentClassifies=r.classifies||(r.classify?[r.classify]:[]);
+    state.currentRefUrl=r.refUrl||'';
+    state.currentGenTitle=r.genTitle||'';
+    state.currentGenDesc=r.genDesc||'';
   } else {
     state.currentImages=[];state.currentNote='';
     state.currentColor='';state.currentSize='';state.currentClassifies=[];
+    state.currentRefUrl='';state.currentGenTitle='';state.currentGenDesc='';
   }
   render();
 }
@@ -674,6 +716,110 @@ function handleImages(files){
   });
 }
 
+async function generateDescription(){
+  if(!state.anthropicKey){
+    showToast('APIキーが未設定です（設定画面で入力）','warn');return;
+  }
+  const item=state.items[state.currentIndex];
+  if(!item)return;
+  state.generating=true;render();
+
+  // 参照URLの中身を取得（可能なら）
+  let refText='';
+  if(state.currentRefUrl){
+    try{
+      const r=await fetch(state.currentRefUrl);
+      if(r.ok){
+        const html=await r.text();
+        // テキストだけ雑に抽出
+        refText=html.replace(/<script[\s\S]*?<\/script>/gi,'').replace(/<style[\s\S]*?<\/style>/gi,'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').slice(0,3000);
+      }
+    }catch(e){refText='(参照URL取得失敗: '+e.message+')';}
+  }
+
+  const cls=state.currentClassifies;
+  const isUsed=cls.includes('used')||item['中古確認']==='YES';
+  const stateLabel=isUsed?'中古品（傷、汚れあり）':'新品';
+
+  const prompt=`あなたはメルカリShops「マカセル公式ショップ」の出品担当です。以下の商品情報から、ショップの定型フォーマットに沿った「タイトル」と「商品説明文」を生成してください。
+
+# 商品情報
+商品名: ${item['商品名']}
+ショップ(仕入元): ${item['Shop_Key']||''}
+価格: ${item['単価']||''}円
+状態: ${stateLabel}
+${state.currentColor?'色: '+state.currentColor:''}
+${state.currentSize?'サイズ: '+state.currentSize:''}
+管理コード(商品ID): ${item['代表PKGI']}
+${refText?'\n# 参照ページ情報\n'+refText:''}
+
+# タイトルのルール
+- 形式: 【状態】ブランド 商品名 特徴 カラー サイズ【管理コード末尾】
+- 例: 【新品タグ付き】UNIQLO U エアリズムコットンオーバーサイズTシャツ 5分袖 ライトグレー メンズM【ATB】
+- 40文字程度、検索されやすいキーワードを含める
+
+# 説明文のフォーマット（厳守）
+【商品概要】
+━━━━━━━━━━━━━━━━━━━━
+商品名：
+ブランド / メーカー：
+型番：（あれば）
+カラー：
+サイズ / 容量：
+状態：${stateLabel}
+━━━━━━━━━━━━━━━━━━━━
+【商品詳細】
+（商品の魅力を2-3行）
+
+【コンディション・内容】
+${isUsed?'（中古のため、傷・汚れの可能性、画像優先の注意書きを記載）':'（新品の状態、画像優先の注意書きを記載）'}
+
+【付属品について】
+（画像に写っているものが全てという注意書き）
+
+【お取引上のご注意】
+発送方法：佐川急便または日本郵便
+発送時期：2-3日以内
+※値下げ交渉・個別のご質問には対応しておりません。
+━━━━━━━━━━━━━━━━━━━━
+キーワード：（検索キーワードを列挙）
+━━━━━━━━━━━━━━━━━━━━
+よろしくお願いいたします。
+
+商品ID：${item['代表PKGI']}
+
+# 出力形式（厳守・JSON以外何も書かない）
+{"title":"生成したタイトル","description":"生成した説明文全文"}`;
+
+  try{
+    const res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{
+        'x-api-key':state.anthropicKey,
+        'anthropic-version':'2023-06-01',
+        'anthropic-dangerous-direct-browser-access':'true',
+        'content-type':'application/json',
+      },
+      body:JSON.stringify({
+        model:'claude-sonnet-4-6',
+        max_tokens:2000,
+        messages:[{role:'user',content:prompt}],
+      }),
+    });
+    const data=await res.json();
+    if(data.error){showToast('生成エラー: '+data.error.message,'warn');state.generating=false;render();return;}
+    let txt=data.content.map(b=>b.text||'').join('').trim();
+    txt=txt.replace(/```json|```/g,'').trim();
+    const parsed=JSON.parse(txt);
+    state.currentGenTitle=parsed.title||'';
+    state.currentGenDesc=parsed.description||'';
+    showToast('生成しました ✓','ok');
+  }catch(e){
+    showToast('生成失敗: '+e.message,'warn');
+  }
+  state.generating=false;render();
+}
+
 function saveAndNext(){
   const item=state.items[state.currentIndex];
   if(!item||state.currentClassifies.length===0)return;
@@ -684,6 +830,9 @@ function saveAndNext(){
     images,note:state.currentNote,
     color:state.currentColor,size:state.currentSize,
     name:item['商品名'],
+    refUrl:state.currentRefUrl,
+    genTitle:state.currentGenTitle,
+    genDesc:state.currentGenDesc,
     pkgiList:(item['全PKGI']||'').split(';').filter(Boolean),
     bundlingIds:(item['Bundling_ID']||'').split(';').filter(Boolean),
     shelfNos:(item['Shelf_No']||'').split(';').filter(Boolean),
@@ -691,7 +840,7 @@ function saveAndNext(){
   saveState();
   showToast('保存しました ✓','ok');
   if(state.currentIndex<state.items.length-1)navigateTo(state.currentIndex+1);
-  else{state.currentImages=[];state.currentNote='';state.currentColor='';state.currentSize='';state.currentClassifies=[];render();}
+  else{state.currentImages=[];state.currentNote='';state.currentColor='';state.currentSize='';state.currentClassifies=[];state.currentRefUrl='';state.currentGenTitle='';state.currentGenDesc='';render();}
 }
 
 async function pushToGitHub(){
@@ -715,13 +864,14 @@ async function pushToGitHub(){
 }
 
 function exportCSV(){
-  const rows=[['代表PKGI','全PKGI','PKGI数','Bundling_ID','Shelf_No','商品名','分類','色情報','サイズ情報','画像枚数','画像ファイル名','備考']];
+  const rows=[['代表PKGI','全PKGI','PKGI数','Bundling_ID','Shelf_No','商品名','分類','色情報','サイズ情報','生成タイトル','生成説明文','参照URL','画像枚数','画像ファイル名','備考']];
   for(const[pkgi,r] of Object.entries(state.results)){
     const item=state.items.find(i=>i['代表PKGI']===pkgi);
     rows.push([
       pkgi,item?.['全PKGI']||'',item?.['PKGI数']||'',
       (r.bundlingIds||[]).join(';'),(r.shelfNos||[]).join(';'),
       r.name||'',(r.classifies||[r.classify]).filter(Boolean).join(';'),(r.color||''),(r.size||''),
+      (r.genTitle||''),(r.genDesc||''),(r.refUrl||''),
       (r.images||[]).length,(r.images||[]).map(i=>i.name).join(';'),r.note||''
     ]);
   }
