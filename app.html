@@ -98,6 +98,9 @@ textarea.info-input{resize:vertical;min-height:60px;font-family:var(--sans);}
 .cls-size:hover,.cls-size.active{background:#47c8ff;color:#000;border-color:#47c8ff;}
 .cls-other{background:#1e1e00;color:#ffdd47;border-color:#ffdd4744;}
 .cls-other:hover,.cls-other.active{background:#ffdd47;color:#000;border-color:#ffdd47;}
+.cls-used{background:#2a0a14;color:#ff5f8f;border-color:#ff5f8f44;}
+.cls-used:hover,.cls-used.active{background:#ff5f8f;color:#000;border-color:#ff5f8f;}
+.flag-used{background:#2a0a14;color:#ff5f8f;border:1px solid #ff5f8f66;}
 /* Nav */
 .nav-row{display:flex;align-items:center;justify-content:space-between;}
 .progress-bar{width:100%;height:3px;background:var(--border);border-radius:2px;overflow:hidden;}
@@ -154,7 +157,7 @@ let state={
   currentIndex: _s?.currentIndex||0,
   results: _s?.results||{},
   currentImages:[],currentNote:'',currentColor:'',currentSize:'',
-  currentClassify:'',dragOver:false,dragSrcIdx:null,
+  currentClassifies:[],dragOver:false,dragSrcIdx:null,
 };
 
 // ===== RENDER =====
@@ -201,10 +204,12 @@ function renderResume(){
   const done=Object.keys(state.results).length;
   const total=state.items.length;
   const next=state.items[state.currentIndex];
-  const okC=Object.values(state.results).filter(r=>r.classify==='ok').length;
-  const colorC=Object.values(state.results).filter(r=>r.classify==='color').length;
-  const sizeC=Object.values(state.results).filter(r=>r.classify==='size').length;
-  const otherC=Object.values(state.results).filter(r=>r.classify==='other').length;
+  const cl=r=>r.classifies||(r.classify?[r.classify]:[]);
+  const okC=Object.values(state.results).filter(r=>cl(r).includes('ok')).length;
+  const colorC=Object.values(state.results).filter(r=>cl(r).includes('color')).length;
+  const sizeC=Object.values(state.results).filter(r=>cl(r).includes('size')).length;
+  const usedC=Object.values(state.results).filter(r=>cl(r).includes('used')).length;
+  const otherC=Object.values(state.results).filter(r=>cl(r).includes('other')).length;
   return`<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:40px 20px;">
   <div class="setup">
     <div>
@@ -216,6 +221,7 @@ function renderResume(){
       <div class="resume-row"><span style="color:var(--muted)">OK</span><span class="resume-val" style="color:var(--ok)">${okC}件</span></div>
       <div class="resume-row"><span style="color:var(--muted)">色確認</span><span class="resume-val" style="color:#ff8c47">${colorC}件</span></div>
       <div class="resume-row"><span style="color:var(--muted)">サイズ確認</span><span class="resume-val" style="color:#47c8ff">${sizeC}件</span></div>
+      <div class="resume-row"><span style="color:var(--muted)">中古確認</span><span class="resume-val" style="color:#ff5f8f">${usedC}件</span></div>
       <div class="resume-row"><span style="color:var(--muted)">その他確認</span><span class="resume-val" style="color:#ffdd47">${otherC}件</span></div>
       <div style="border-top:1px solid var(--border);padding-top:8px;">
         <div class="resume-row"><span style="color:var(--muted)">残り</span><span class="resume-val" style="color:var(--accent)">${total-done}件</span></div>
@@ -237,17 +243,20 @@ function renderWork(){
   const total=state.items.length;
   const done=Object.keys(state.results).length;
   const progress=total>0?Math.round(done/total*100):0;
-  const okC=Object.values(state.results).filter(r=>r.classify==='ok').length;
-  const colorC=Object.values(state.results).filter(r=>r.classify==='color').length;
-  const sizeC=Object.values(state.results).filter(r=>r.classify==='size').length;
-  const otherC=Object.values(state.results).filter(r=>r.classify==='other').length;
+  const cl=r=>r.classifies||(r.classify?[r.classify]:[]);
+  const okC=Object.values(state.results).filter(r=>cl(r).includes('ok')).length;
+  const colorC=Object.values(state.results).filter(r=>cl(r).includes('color')).length;
+  const sizeC=Object.values(state.results).filter(r=>cl(r).includes('size')).length;
+  const usedC=Object.values(state.results).filter(r=>cl(r).includes('used')).length;
+  const otherC=Object.values(state.results).filter(r=>cl(r).includes('other')).length;
 
   // history
   const histHtml=Object.entries(state.results).reverse().slice(0,30).map(([pkgi,r])=>{
     const it=state.items.find(i=>i['代表PKGI']===pkgi);
-    const colors={ok:'var(--ok)',color:'#ff8c47',size:'#47c8ff',other:'#ffdd47'};
+    const colors={ok:'var(--ok)',color:'#ff8c47',size:'#47c8ff',used:'#ff5f8f',other:'#ffdd47'};
+    const rc=(r.classifies||[r.classify])[0];
     return`<div class="history-item" data-pkgi="${pkgi}">
-      <div class="h-badge" style="background:${colors[r.classify]||'var(--muted)'}"></div>
+      <div class="h-badge" style="background:${colors[rc]||'var(--muted)'}"></div>
       <div style="font-family:var(--mono);font-size:10px;color:var(--muted);flex-shrink:0;">${pkgi.replace('PKGI-','')}</div>
       <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;">${it?it['商品名'].substring(0,16):pkgi}</div>
       <div style="font-size:10px;color:var(--muted);flex-shrink:0;">${(r.images||[]).length}枚</div>
@@ -267,7 +276,9 @@ function renderWork(){
   // フラグ
   const needColor=item['色確認']==='YES';
   const needSize=item['サイズ確認']==='YES';
-  const curClassify=state.currentClassify;
+  const needUsed=item['中古確認']==='YES';
+  const cls=state.currentClassifies;
+  const has=k=>cls.includes(k);
 
   // 画像サムネイル
   const activeCount=state.currentImages.filter(i=>!i.excluded).length;
@@ -286,9 +297,9 @@ function renderWork(){
     </div>`;
   }).join('');
 
-  // 色/サイズ入力欄（classify=color or sizeのとき表示）
-  const showColorInput=curClassify==='color'||curClassify==='other';
-  const showSizeInput=curClassify==='size'||curClassify==='other';
+  // 色/サイズ入力欄
+  const showColorInput=has('color');
+  const showSizeInput=has('size');
 
   return`<div style="display:flex;flex-direction:column;height:100vh;">
   ${renderHeader(done,total,progress)}
@@ -310,6 +321,7 @@ function renderWork(){
         <div class="flag-badges">
           ${needColor?`<span class="flag-badge flag-color">🎨 色確認必要</span>`:''}
           ${needSize?`<span class="flag-badge flag-size">📐 サイズ確認必要</span>`:''}
+          ${needUsed?`<span class="flag-badge flag-used">📷 中古・撮影必須</span>`:''}
         </div>
         <div class="item-tags" style="margin-top:8px;">
           <span class="tag">¥${Number(item['単価']||0).toLocaleString()}</span>
@@ -339,12 +351,13 @@ function renderWork(){
 
       <!-- 分類ボタン -->
       <div>
-        <div class="section-label">分類</div>
+        <div class="section-label">分類（複数選択可・OKは排他）</div>
         <div class="classify-btns">
-          <button class="cls-btn cls-ok ${curClassify==='ok'?'active':''}" data-cls="ok">✓ OK</button>
-          <button class="cls-btn cls-color ${curClassify==='color'?'active':''}" data-cls="color">🎨 色確認</button>
-          <button class="cls-btn cls-size ${curClassify==='size'?'active':''}" data-cls="size">📐 サイズ確認</button>
-          <button class="cls-btn cls-other ${curClassify==='other'?'active':''}" data-cls="other">⚠ その他確認</button>
+          <button class="cls-btn cls-ok ${has('ok')?'active':''}" data-cls="ok">✓ OK</button>
+          <button class="cls-btn cls-color ${has('color')?'active':''}" data-cls="color">🎨 色確認</button>
+          <button class="cls-btn cls-size ${has('size')?'active':''}" data-cls="size">📐 サイズ確認</button>
+          <button class="cls-btn cls-used ${has('used')?'active':''}" data-cls="used">📷 中古確認</button>
+          <button class="cls-btn cls-other ${has('other')?'active':''}" data-cls="other">⚠ その他確認</button>
         </div>
       </div>
 
@@ -385,7 +398,7 @@ function renderWork(){
 
       <!-- 次へボタン -->
       <div style="display:flex;gap:8px;padding-bottom:20px;">
-        <button class="btn btn-primary" id="save-next-btn" style="flex:1;" ${!curClassify?'disabled':''}>保存して次へ →</button>
+        <button class="btn btn-primary" id="save-next-btn" style="flex:1;" ${cls.length===0?'disabled':''}>保存して次へ →</button>
         <button class="btn btn-ghost" id="skip-btn">スキップ</button>
       </div>
     </div>
@@ -398,13 +411,14 @@ function renderWork(){
           <div class="stat-card"><div class="stat-num" style="color:var(--ok)">${okC}</div><div class="stat-label">OK</div></div>
           <div class="stat-card"><div class="stat-num" style="color:#ff8c47">${colorC}</div><div class="stat-label">色確認</div></div>
           <div class="stat-card"><div class="stat-num" style="color:#47c8ff">${sizeC}</div><div class="stat-label">サイズ確認</div></div>
+          <div class="stat-card"><div class="stat-num" style="color:#ff5f8f">${usedC}</div><div class="stat-label">中古確認</div></div>
           <div class="stat-card"><div class="stat-num" style="color:#ffdd47">${otherC}</div><div class="stat-label">その他</div></div>
-          <div class="stat-card" style="grid-column:span 2"><div class="stat-num" style="color:var(--accent)">${total-done}</div><div class="stat-label">残り</div></div>
+          <div class="stat-card"><div class="stat-num" style="color:var(--accent)">${total-done}</div><div class="stat-label">残り</div></div>
         </div>
       </div>
       <div>
         <div class="sidebar-title">GitHub Push</div>
-        <button class="push-btn" id="push-btn">↑ recoreimages/ にpush<br><span style="font-size:10px;color:var(--muted)">${okC+colorC+sizeC+otherC}件の画像をpush</span></button>
+        <button class="push-btn" id="push-btn">↑ recoreimages/ にpush<br><span style="font-size:10px;color:var(--muted)">処理済み画像をpush</span></button>
       </div>
       <div>
         <div class="sidebar-title">エクスポート</div>
@@ -472,11 +486,18 @@ function bindEvents(){
     document.getElementById('export-csv-btn')?.addEventListener('click',exportCSV);
     document.getElementById('picking-btn')?.addEventListener('click',exportPickingList);
 
-    // 分類ボタン
+    // 分類ボタン（複数トグル・OKは排他）
     document.querySelectorAll('[data-cls]').forEach(btn=>{
       btn.addEventListener('click',()=>{
-        state.currentClassify=btn.dataset.cls;
-        document.getElementById('save-next-btn').disabled=false;
+        const k=btn.dataset.cls;
+        let cls=[...state.currentClassifies];
+        if(k==='ok'){
+          cls=cls.includes('ok')?[]:['ok'];
+        } else {
+          cls=cls.filter(x=>x!=='ok'); // OK解除
+          cls.includes(k)?cls=cls.filter(x=>x!==k):cls.push(k);
+        }
+        state.currentClassifies=cls;
         render();
       });
     });
@@ -588,10 +609,10 @@ function navigateTo(idx){
     state.currentNote=r.note||'';
     state.currentColor=r.color||'';
     state.currentSize=r.size||'';
-    state.currentClassify=r.classify||'';
+    state.currentClassifies=r.classifies||(r.classify?[r.classify]:[]);
   } else {
     state.currentImages=[];state.currentNote='';
-    state.currentColor='';state.currentSize='';state.currentClassify='';
+    state.currentColor='';state.currentSize='';state.currentClassifies=[];
   }
   render();
 }
@@ -655,11 +676,11 @@ function handleImages(files){
 
 function saveAndNext(){
   const item=state.items[state.currentIndex];
-  if(!item||!state.currentClassify)return;
+  if(!item||state.currentClassifies.length===0)return;
   let num=1;
   const images=state.currentImages.filter(i=>!i.excluded).map(i=>({...i,name:`${item['代表PKGI']}_${num++}.jpg`}));
   state.results[item['代表PKGI']]={
-    classify:state.currentClassify,
+    classifies:[...state.currentClassifies],
     images,note:state.currentNote,
     color:state.currentColor,size:state.currentSize,
     name:item['商品名'],
@@ -668,10 +689,9 @@ function saveAndNext(){
     shelfNos:(item['Shelf_No']||'').split(';').filter(Boolean),
   };
   saveState();
-  const labels={ok:'OK ✓',color:'色確認 🎨',size:'サイズ確認 📐',other:'その他確認 ⚠'};
-  showToast(labels[state.currentClassify]||'保存','ok');
+  showToast('保存しました ✓','ok');
   if(state.currentIndex<state.items.length-1)navigateTo(state.currentIndex+1);
-  else{state.currentImages=[];state.currentNote='';state.currentColor='';state.currentSize='';state.currentClassify='';render();}
+  else{state.currentImages=[];state.currentNote='';state.currentColor='';state.currentSize='';state.currentClassifies=[];render();}
 }
 
 async function pushToGitHub(){
@@ -701,7 +721,7 @@ function exportCSV(){
     rows.push([
       pkgi,item?.['全PKGI']||'',item?.['PKGI数']||'',
       (r.bundlingIds||[]).join(';'),(r.shelfNos||[]).join(';'),
-      r.name||'',r.classify||'',(r.color||''),(r.size||''),
+      r.name||'',(r.classifies||[r.classify]).filter(Boolean).join(';'),(r.color||''),(r.size||''),
       (r.images||[]).length,(r.images||[]).map(i=>i.name).join(';'),r.note||''
     ]);
   }
@@ -712,27 +732,28 @@ function exportCSV(){
 function exportPickingList(){
   // 現場スタッフ向け：確認が必要なものだけBundling IDで一覧化
   const needCheck=Object.entries(state.results)
-    .filter(([,r])=>r.classify&&r.classify!=='ok');
+    .filter(([,r])=>{const cl=r.classifies||(r.classify?[r.classify]:[]);return cl.length>0&&!(cl.length===1&&cl[0]==='ok');});
   
   const rows=[['Bundling_ID','Shelf_No','代表PKGI','全PKGI (構成)','商品名','確認種別','色情報','サイズ情報','備考']];
   for(const[pkgi,r] of needCheck){
     const item=state.items.find(i=>i['代表PKGI']===pkgi);
+    const labels={color:'色確認',size:'サイズ確認',used:'中古確認',other:'その他確認'};
+    const clsStr=(r.classifies||[r.classify]).filter(x=>x&&x!=='ok').map(x=>labels[x]||x).join('+');
     rows.push([
       (r.bundlingIds||[]).join(';'),(r.shelfNos||[]).join(';'),
       pkgi,(r.pkgiList||[]).join(';'),r.name||'',
-      {color:'色確認',size:'サイズ確認',other:'その他確認'}[r.classify]||r.classify,
-      r.color||'',r.size||'',r.note||''
+      clsStr,r.color||'',r.size||'',r.note||''
     ]);
   }
 
   // 未処理分も追加（スキップされたもの）
   const processed=new Set(Object.keys(state.results));
   for(const item of state.items){
-    if(!processed.has(item['代表PKGI'])&&(item['色確認']==='YES'||item['サイズ確認']==='YES')){
+    if(!processed.has(item['代表PKGI'])&&(item['色確認']==='YES'||item['サイズ確認']==='YES'||item['中古確認']==='YES')){
       rows.push([
         item['Bundling_ID']||'',item['Shelf_No']||'',
         item['代表PKGI'],item['全PKGI']||'',item['商品名']||'',
-        [item['色確認']==='YES'?'色確認':'',item['サイズ確認']==='YES'?'サイズ確認':''].filter(Boolean).join('+'),
+        [item['色確認']==='YES'?'色確認':'',item['サイズ確認']==='YES'?'サイズ確認':'',item['中古確認']==='YES'?'中古確認':''].filter(Boolean).join('+'),
         '','',''
       ]);
     }
