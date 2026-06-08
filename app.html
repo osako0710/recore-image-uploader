@@ -246,7 +246,7 @@ function renderWork() {
 
   const thumbsHtml = state.currentImages.map((img, i) => {
     const displayNum = state.currentImages.slice(0, i).filter(x => !x.excluded).length + 1;
-    return `<div class="image-thumb ${img.excluded ? 'excluded' : ''}" draggable="true" data-idx="${i}">
+    return `<div class="image-thumb ${img.excluded ? 'excluded' : ''}" data-idx="${i}">
       <img class="thumb-img" src="${img.dataUrl}">
       <div class="thumb-footer">
         <span class="thumb-num ${img.excluded ? 'excluded-num' : ''}">${img.excluded ? '除外' : '_' + displayNum}</span>
@@ -436,39 +436,101 @@ function bindEvents() {
 }
 
 function bindDragSort() {
-  const thumbs = document.querySelectorAll('.image-thumb');
-  thumbs.forEach(thumb => {
-    thumb.addEventListener('dragstart', e => {
-      state.dragSrcIdx = parseInt(thumb.dataset.idx);
-      thumb.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', ''); // Firefox対策
-    });
-    thumb.addEventListener('dragend', () => {
-      thumb.classList.remove('dragging');
-      document.querySelectorAll('.image-thumb').forEach(t => t.classList.remove('drag-over'));
-      state.dragSrcIdx = null; // 必ずリセット
-      state.dragOver = false;
-    });
-    thumb.addEventListener('dragover', e => {
+  const grid = document.getElementById('image-grid');
+  if (!grid) return;
+
+  let dragEl = null;
+  let placeholder = null;
+  let startIdx = null;
+
+  function getThumbAt(x, y) {
+    const els = document.querySelectorAll('.image-thumb');
+    for (const el of els) {
+      const r = el.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return el;
+    }
+    return null;
+  }
+
+  document.querySelectorAll('.image-thumb').forEach(thumb => {
+    thumb.addEventListener('mousedown', e => {
+      if (e.target.closest('button')) return; // ボタンクリックは無視
       e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      document.querySelectorAll('.image-thumb').forEach(t => t.classList.remove('drag-over'));
-      thumb.classList.add('drag-over');
-    });
-    thumb.addEventListener('dragleave', () => thumb.classList.remove('drag-over'));
-    thumb.addEventListener('drop', e => {
-      e.preventDefault();
-      e.stopPropagation();
-      const destIdx = parseInt(thumb.dataset.idx);
-      if (state.dragSrcIdx !== null && state.dragSrcIdx !== destIdx) {
-        const imgs = [...state.currentImages];
-        const [moved] = imgs.splice(state.dragSrcIdx, 1);
-        imgs.splice(destIdx, 0, moved);
-        state.currentImages = imgs;
-        state.dragSrcIdx = null;
+
+      startIdx = parseInt(thumb.dataset.idx);
+      dragEl = thumb.cloneNode(true);
+      dragEl.style.cssText = `
+        position:fixed; z-index:9999; pointer-events:none; opacity:0.85;
+        width:${thumb.offsetWidth}px; height:${thumb.offsetHeight}px;
+        border:2px solid var(--accent); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.5);
+        transform:rotate(2deg) scale(1.05); transition:none;
+      `;
+      const r = thumb.getBoundingClientRect();
+      dragEl.style.left = r.left + 'px';
+      dragEl.style.top = r.top + 'px';
+      document.body.appendChild(dragEl);
+
+      // プレースホルダー
+      placeholder = document.createElement('div');
+      placeholder.style.cssText = `
+        width:${thumb.offsetWidth}px; height:${thumb.offsetHeight}px;
+        border:2px dashed var(--accent2); border-radius:8px; background:#1a2030;
+        opacity:0.5;
+      `;
+      thumb.replaceWith(placeholder);
+      thumb.style.display = 'none';
+      document.body.appendChild(thumb); // DOM保持用
+
+      const onMouseMove = e => {
+        if (!dragEl) return;
+        dragEl.style.left = (e.clientX - thumb.offsetWidth/2) + 'px';
+        dragEl.style.top = (e.clientY - thumb.offsetHeight/2) + 'px';
+
+        const over = getThumbAt(e.clientX, e.clientY);
+        if (over && over !== placeholder && over.dataset.idx !== undefined) {
+          const overRect = over.getBoundingClientRect();
+          const midX = overRect.left + overRect.width / 2;
+          if (e.clientX < midX) {
+            grid.insertBefore(placeholder, over);
+          } else {
+            grid.insertBefore(placeholder, over.nextSibling);
+          }
+        }
+      };
+
+      const onMouseUp = e => {
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+
+        if (dragEl) { dragEl.remove(); dragEl = null; }
+
+        // placeholderの位置からdestIdxを求める
+        const allThumbs = [...grid.querySelectorAll('.image-thumb')];
+        let destIdx = allThumbs.length; // デフォルトは末尾
+        const placeholderIdx = [...grid.children].indexOf(placeholder);
+        // placeholder前にあるimage-thumbの数
+        let count = 0;
+        for (let i = 0; i < placeholderIdx; i++) {
+          if (grid.children[i].classList && grid.children[i].classList.contains('image-thumb')) count++;
+        }
+        destIdx = count;
+
+        if (placeholder) { placeholder.remove(); placeholder = null; }
+        if (thumb.parentNode) thumb.remove();
+
+        if (startIdx !== null && startIdx !== destIdx) {
+          const imgs = [...state.currentImages];
+          const [moved] = imgs.splice(startIdx, 1);
+          const insertAt = destIdx > startIdx ? destIdx - 1 : destIdx;
+          imgs.splice(insertAt, 0, moved);
+          state.currentImages = imgs;
+        }
+        startIdx = null;
         render();
-      }
+      };
+
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
     });
   });
 }
