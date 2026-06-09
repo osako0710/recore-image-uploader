@@ -204,6 +204,7 @@ function renderSetup(){
       </div>
     </div>
     <button class="btn btn-primary" id="start-btn" ${state.items.length===0||!state.githubToken?'disabled':''}>作業開始 →</button>
+    <div style="font-size:11px;color:var(--muted);text-align:center;">作業開始後、サイドバーの「☁️ クラウドから読込」で<br>他のPCの進捗を引き継げます</div>
   </div>
 </div>`;
 }
@@ -459,9 +460,17 @@ function renderWork(){
         </div>`:''}
       </div>
       <div>
-        <div class="sidebar-title">エクスポート</div>
+        <div class="sidebar-title">クラウド同期（全員共有）</div>
+        <button class="export-btn" id="cloud-save-btn" style="border-color:#47c8ff;color:#47c8ff;">☁️ クラウドに保存</button>
+        <button class="export-btn" id="cloud-load-btn" style="margin-top:6px;border-color:#47c8ff;color:#47c8ff;">☁️ クラウドから読込</button>
+      </div>
+      <div>
+        <div class="sidebar-title">エクスポート / バックアップ</div>
         <button class="export-btn" id="export-csv-btn">📥 進捗CSV ダウンロード</button>
         <button class="export-btn" id="picking-btn" style="margin-top:6px;">📋 現場ピッキングリスト</button>
+        <button class="export-btn" id="backup-btn" style="margin-top:6px;">💾 バックアップ(JSON)保存</button>
+        <button class="export-btn" id="import-btn" style="margin-top:6px;">📂 バックアップ(JSON)復元</button>
+        <input type="file" id="import-file" accept=".json" style="display:none;">
       </div>
       <div>
         <div class="sidebar-title">処理済み (${done}件)</div>
@@ -531,6 +540,11 @@ function bindEvents(){
     document.getElementById('push-btn')?.addEventListener('click',pushToGitHub);
     document.getElementById('export-csv-btn')?.addEventListener('click',exportCSV);
     document.getElementById('picking-btn')?.addEventListener('click',exportPickingList);
+    document.getElementById('cloud-save-btn')?.addEventListener('click',cloudSave);
+    document.getElementById('cloud-load-btn')?.addEventListener('click',cloudLoad);
+    document.getElementById('backup-btn')?.addEventListener('click',backupJSON);
+    document.getElementById('import-btn')?.addEventListener('click',()=>document.getElementById('import-file').click());
+    document.getElementById('import-file')?.addEventListener('change',e=>importJSON(e.target.files[0]));
 
     // 分類ボタン（複数トグル・OKは排他）
     document.querySelectorAll('[data-cls]').forEach(btn=>{
@@ -998,6 +1012,98 @@ function dl(content,filename,type){
   a.href=URL.createObjectURL(new Blob([content],{type}));
   a.download=filename;a.click();
 }
+
+// ===== クラウド同期（GitHub progress.json） =====
+// 進捗から画像dataUrlを除いた軽量データを作る
+function buildProgress(){
+  const slim={};
+  for(const[pkgi,r] of Object.entries(state.results)){
+    slim[pkgi]={
+      classifies:r.classifies||(r.classify?[r.classify]:[]),
+      note:r.note||'',color:r.color||'',size:r.size||'',
+      name:r.name||'',refUrl:r.refUrl||'',
+      genTitle:r.genTitle||'',genDesc:r.genDesc||'',
+      imageNames:(r.images||[]).map(i=>i.name),
+      pkgiList:r.pkgiList||[],bundlingIds:r.bundlingIds||[],shelfNos:r.shelfNos||[],
+    };
+  }
+  return{version:2,updatedAt:new Date().toISOString(),currentIndex:state.currentIndex,results:slim};
+}
+
+async function cloudSave(){
+  if(!state.githubToken){showToast('GitHub tokenが必要です','warn');return;}
+  showToast('クラウド保存中...','');
+  const progress=buildProgress();
+  const content=btoa(unescape(encodeURIComponent(JSON.stringify(progress,null,1))));
+  const url=`https://api.github.com/repos/${state.githubRepo}/contents/progress.json`;
+  try{
+    let sha;
+    try{const r=await fetch(url,{headers:{Authorization:`token ${state.githubToken}`,Accept:'application/vnd.github.v3+json'}});if(r.ok)sha=(await r.json()).sha;}catch{}
+    const body={message:`update progress ${new Date().toISOString()}`,content,branch:'main'};
+    if(sha)body.sha=sha;
+    const r=await fetch(url,{method:'PUT',headers:{Authorization:`token ${state.githubToken}`,'Content-Type':'application/json',Accept:'application/vnd.github.v3+json'},body:JSON.stringify(body)});
+    if(r.ok)showToast(`クラウド保存完了 ${Object.keys(progress.results).length}件 ☁️`,'ok');
+    else{const d=await r.json();showToast('保存失敗: '+(d.message||r.status),'warn');}
+  }catch(e){showToast('保存失敗: '+e.message,'warn');}
+}
+
+async function cloudLoad(){
+  if(!state.githubToken){showToast('GitHub tokenが必要です','warn');return;}
+  if(!confirm('クラウドの進捗を読み込みます。\n現在の画面の進捗は上書きされます（画像は再アップロードが必要）。よろしいですか？'))return;
+  showToast('クラウド読込中...','');
+  const url=`https://api.github.com/repos/${state.githubRepo}/contents/progress.json`;
+  try{
+    const r=await fetch(url,{headers:{Authorization:`token ${state.githubToken}`,Accept:'application/vnd.github.v3+json'}});
+    if(!r.ok){showToast('クラウドに進捗がありません','warn');return;}
+    const d=await r.json();
+    const json=decodeURIComponent(escape(atob(d.content)));
+    const progress=JSON.parse(json);
+    // progress → state.results へ（画像はnameだけ復元、dataUrlは空）
+    const results={};
+    for(const[pkgi,r2] of Object.entries(progress.results)){
+      results[pkgi]={
+        classifies:r2.classifies||[],note:r2.note||'',color:r2.color||'',size:r2.size||'',
+        name:r2.name||'',refUrl:r2.refUrl||'',genTitle:r2.genTitle||'',genDesc:r2.genDesc||'',
+        images:(r2.imageNames||[]).map(n=>({name:n,dataUrl:'',pushed:true})),
+        pkgiList:r2.pkgiList||[],bundlingIds:r2.bundlingIds||[],shelfNos:r2.shelfNos||[],
+      };
+    }
+    state.results=results;
+    state.currentIndex=progress.currentIndex||0;
+    saveState();
+    showToast(`クラウド読込完了 ${Object.keys(results).length}件 ☁️`,'ok');
+    navigateTo(state.currentIndex);
+  }catch(e){showToast('読込失敗: '+e.message,'warn');}
+}
+
+function backupJSON(){
+  // localStorageの生データ（画像込み）をそのまま保存
+  const data=localStorage.getItem('recore_v2')||JSON.stringify({githubRepo:state.githubRepo,items:state.items,currentIndex:state.currentIndex,results:state.results});
+  dl(data,`recore_backup_${new Date().toISOString().slice(0,10)}.json`,'application/json');
+  showToast('バックアップ保存 💾','ok');
+}
+
+function importJSON(file){
+  if(!file)return;
+  if(!confirm('バックアップを復元します。現在の進捗は上書きされます。よろしいですか？'))return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const d=JSON.parse(e.target.result);
+      if(d.results){
+        if(d.items&&d.items.length)state.items=d.items;
+        state.results=d.results;
+        state.currentIndex=d.currentIndex||0;
+        saveState();
+        showToast(`復元完了 ${Object.keys(d.results).length}件`,'ok');
+        state.screen='work';
+        navigateTo(state.currentIndex);
+      }else{showToast('不正なバックアップファイル','warn');}
+    }catch(err){showToast('復元失敗: '+err.message,'warn');}
+  };
+  reader.readAsText(file,'UTF-8');
+}
+
 
 let toastTimer;
 function showToast(msg,type=''){
