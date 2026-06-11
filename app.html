@@ -294,7 +294,7 @@ function renderWork(){
   const thumbsHtml=state.currentImages.map((img,i)=>{
     const dispNum=state.currentImages.slice(0,i).filter(x=>!x.excluded).length+1;
     return`<div class="image-thumb ${img.excluded?'excluded':''}" data-idx="${i}">
-      <img class="thumb-img" src="${img.dataUrl}">
+      <img class="thumb-img" src="${img.dataUrl||img.cdnUrl||''}" onerror="this.style.opacity=0.2;">
       <div class="thumb-footer">
         <span class="thumb-num">${img.excluded?'除外':'_'+dispNum}</span>
         <div class="thumb-controls">
@@ -926,12 +926,13 @@ function saveAndNext(){
 async function pushToGitHub(){
   const btn=document.getElementById('push-btn');
   if(btn){btn.classList.add('pushing');btn.innerHTML='push中...';}
-  let success=0,fail=0;
+  let success=0,fail=0,skipped=0;
   const errors=[];
   for(const[pkgi,r] of Object.entries(state.results)){
     if(!r.images?.length)continue;
     for(const img of r.images){
       try{
+        if((!img.dataUrl||img.dataUrl==='')&&(img.pushed||img.cdnUrl)){skipped++;continue;}
         const base64=img.dataUrl.split(',')[1];
         if(!base64){errors.push(`${img.name}: 画像データなし（再アップロードが必要）`);fail++;continue;}
         const url=`https://api.github.com/repos/${state.githubRepo}/contents/recoreimages/${img.name}`;
@@ -940,7 +941,7 @@ async function pushToGitHub(){
         const body={message:`add ${img.name}`,content:base64,branch:'main'};
         if(sha)body.sha=sha;
         const res=await fetch(url,{method:'PUT',headers:{Authorization:`token ${state.githubToken}`,'Content-Type':'application/json',Accept:'application/vnd.github.v3+json'},body:JSON.stringify(body)});
-        if(res.ok){success++;}
+        if(res.ok){success++;img.pushed=true;img.cdnUrl=`https://cdn.jsdelivr.net/gh/${state.githubRepo}@main/recoreimages/${img.name}`;}
         else{
           let msg=res.status+'';
           try{const d=await res.json();if(d.message)msg+=' '+d.message;}catch{}
@@ -952,8 +953,9 @@ async function pushToGitHub(){
   }
   state.pushErrors=errors;
   if(btn){btn.classList.remove('pushing');}
+  saveState();
   render();
-  showToast(`push完了: ${success}件成功${fail>0?` / ${fail}件失敗`:''}`,fail>0?'warn':'ok');
+  showToast(`push完了: 新規${success}件${skipped>0?` / push済${skipped}件スキップ`:''}${fail>0?` / ${fail}件失敗`:''}`,fail>0?'warn':'ok');
 }
 
 function exportCSV(){
@@ -1058,13 +1060,14 @@ async function cloudLoad(){
     const d=await r.json();
     const json=decodeURIComponent(escape(atob(d.content)));
     const progress=JSON.parse(json);
-    // progress → state.results へ（画像はnameだけ復元、dataUrlは空）
+    // progress → state.results へ（画像はjsDelivr URLでプレビュー復元）
+    const cdnBase=`https://cdn.jsdelivr.net/gh/${state.githubRepo}@main/recoreimages/`;
     const results={};
     for(const[pkgi,r2] of Object.entries(progress.results)){
       results[pkgi]={
         classifies:r2.classifies||[],note:r2.note||'',color:r2.color||'',size:r2.size||'',
         name:r2.name||'',refUrl:r2.refUrl||'',genTitle:r2.genTitle||'',genDesc:r2.genDesc||'',
-        images:(r2.imageNames||[]).map(n=>({name:n,dataUrl:'',pushed:true})),
+        images:(r2.imageNames||[]).map(n=>({name:n,dataUrl:'',cdnUrl:cdnBase+n,pushed:true})),
         pkgiList:r2.pkgiList||[],bundlingIds:r2.bundlingIds||[],shelfNos:r2.shelfNos||[],
       };
     }
