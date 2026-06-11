@@ -941,7 +941,7 @@ async function pushToGitHub(){
         const body={message:`add ${img.name}`,content:base64,branch:'main'};
         if(sha)body.sha=sha;
         const res=await fetch(url,{method:'PUT',headers:{Authorization:`token ${state.githubToken}`,'Content-Type':'application/json',Accept:'application/vnd.github.v3+json'},body:JSON.stringify(body)});
-        if(res.ok){success++;img.pushed=true;img.cdnUrl=`https://cdn.jsdelivr.net/gh/${state.githubRepo}@main/recoreimages/${img.name}`;}
+        if(res.ok){success++;img.pushed=true;img.cdnUrl=`https://raw.githubusercontent.com/${state.githubRepo}/main/recoreimages/${img.name}`;}
         else{
           let msg=res.status+'';
           try{const d=await res.json();if(d.message)msg+=' '+d.message;}catch{}
@@ -1061,7 +1061,7 @@ async function cloudLoad(){
     const json=decodeURIComponent(escape(atob(d.content)));
     const progress=JSON.parse(json);
     // progress → state.results へ（画像はjsDelivr URLでプレビュー復元）
-    const cdnBase=`https://cdn.jsdelivr.net/gh/${state.githubRepo}@main/recoreimages/`;
+    const cdnBase=`https://raw.githubusercontent.com/${state.githubRepo}/main/recoreimages/`;
     const results={};
     for(const[pkgi,r2] of Object.entries(progress.results)){
       results[pkgi]={
