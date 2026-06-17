@@ -461,6 +461,11 @@ function renderWork(){
       </div>
       <div>
         <div class="sidebar-title">クラウド同期（全員共有）</div>
+        ${(()=>{
+          let unpushed=0;
+          for(const r of Object.values(state.results))for(const img of (r.images||[]))if(img.dataUrl&&img.dataUrl!==''&&!img.pushed)unpushed++;
+          return unpushed>0?`<div style="background:#2e1a0a;border:1px solid var(--warn);border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:11px;color:var(--warn);">⚠ 未pushの画像が${unpushed}枚あります。先にpushしてください</div>`:'';
+        })()}
         <button class="export-btn" id="cloud-save-btn" style="border-color:#47c8ff;color:#47c8ff;">☁️ クラウドに保存</button>
         <button class="export-btn" id="cloud-load-btn" style="margin-top:6px;border-color:#47c8ff;color:#47c8ff;">☁️ クラウドから読込</button>
       </div>
@@ -731,7 +736,7 @@ function handleImages(files){
   Array.from(files).forEach(file=>{
     const reader=new FileReader();
     reader.onload=e=>{
-      state.currentImages.push({name:`${pkgi}_${state.currentImages.length+1}.jpg`,dataUrl:e.target.result,excluded:false});
+      state.currentImages.push({name:`${pkgi}_${state.currentImages.length+1}.jpg`,dataUrl:e.target.result,excluded:false,pushed:false});
       render();
     };
     reader.readAsDataURL(file);
@@ -1034,6 +1039,28 @@ function buildProgress(){
 
 async function cloudSave(){
   if(!state.githubToken){showToast('GitHub tokenが必要です','warn');return;}
+
+  // 未pushの画像（dataUrlありでpushされていない）を数える
+  let unpushed=0;
+  for(const r of Object.values(state.results)){
+    for(const img of (r.images||[])){
+      if(img.dataUrl&&img.dataUrl!==''&&!img.pushed)unpushed++;
+    }
+  }
+  // 未pushがあれば先にpush
+  if(unpushed>0){
+    if(!confirm(`未pushの画像が${unpushed}枚あります。\n先にGitHubへpushしてからクラウド保存します。よろしいですか？\n\n（pushしないとクラウド保存後に画像が失われます）`)){
+      showToast('クラウド保存を中止しました','warn');return;
+    }
+    await pushToGitHub();
+    // pushエラーがあれば中断
+    if(state.pushErrors&&state.pushErrors.length>0){
+      if(!confirm(`push時に${state.pushErrors.length}件の失敗がありました。\nこのままクラウド保存を続けると、失敗した画像は失われる可能性があります。続けますか？`)){
+        showToast('クラウド保存を中止しました','warn');return;
+      }
+    }
+  }
+
   showToast('クラウド保存中...','');
   const progress=buildProgress();
   const content=btoa(unescape(encodeURIComponent(JSON.stringify(progress,null,1))));
@@ -1058,9 +1085,21 @@ async function cloudLoad(){
     const r=await fetch(url,{headers:{Authorization:`token ${state.githubToken}`,Accept:'application/vnd.github.v3+json'}});
     if(!r.ok){showToast('クラウドに進捗がありません','warn');return;}
     const d=await r.json();
-    const json=decodeURIComponent(escape(atob(d.content)));
+    let json;
+    // 1MB超のファイルはContents APIのcontentが空になるため、download_url(raw)から取得
+    if(d.content&&d.content.trim()){
+      json=decodeURIComponent(escape(atob(d.content)));
+    } else if(d.download_url){
+      const raw=await fetch(d.download_url);
+      json=await raw.text();
+    } else {
+      // フォールバック: raw.githubusercontent直接
+      const raw=await fetch(`https://raw.githubusercontent.com/${state.githubRepo}/main/progress.json`);
+      json=await raw.text();
+    }
+    if(!json||!json.trim()){showToast('進捗データが空です','warn');return;}
     const progress=JSON.parse(json);
-    // progress → state.results へ（画像はjsDelivr URLでプレビュー復元）
+    // progress → state.results へ（画像はraw URLでプレビュー復元）
     const cdnBase=`https://raw.githubusercontent.com/${state.githubRepo}/main/recoreimages/`;
     const results={};
     for(const[pkgi,r2] of Object.entries(progress.results)){
