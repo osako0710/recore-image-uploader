@@ -928,6 +928,28 @@ function saveAndNext(){
   else{state.currentImages=[];state.currentNote='';state.currentColor='';state.currentSize='';state.currentClassifies=[];state.currentRefUrl='';state.currentGenTitle='';state.currentGenDesc='';render();}
 }
 
+// GitHubにファイルをPUT。409(競合)時はSHAを取り直して最大3回リトライ
+async function githubPutFile(path,base64,message,maxRetry=3){
+  const url=`https://api.github.com/repos/${state.githubRepo}/contents/${path}`;
+  for(let attempt=0;attempt<maxRetry;attempt++){
+    let sha;
+    try{const res=await fetch(url,{headers:{Authorization:`token ${state.githubToken}`,Accept:'application/vnd.github.v3+json'}});if(res.ok)sha=(await res.json()).sha;}catch{}
+    const body={message,content:base64,branch:'main'};
+    if(sha)body.sha=sha;
+    const res=await fetch(url,{method:'PUT',headers:{Authorization:`token ${state.githubToken}`,'Content-Type':'application/json',Accept:'application/vnd.github.v3+json'},body:JSON.stringify(body)});
+    if(res.ok)return{ok:true};
+    // 409(競合) or 422(sha古い)はリトライ
+    if((res.status===409||res.status===422)&&attempt<maxRetry-1){
+      await new Promise(r=>setTimeout(r,400*(attempt+1))); // 待ってから再試行
+      continue;
+    }
+    let msg=res.status+'';
+    try{const d=await res.json();if(d.message)msg+=' '+d.message;}catch{}
+    return{ok:false,msg};
+  }
+  return{ok:false,msg:'リトライ上限'};
+}
+
 async function pushToGitHub(){
   const btn=document.getElementById('push-btn');
   if(btn){btn.classList.add('pushing');btn.innerHTML='push中...';}
@@ -940,19 +962,9 @@ async function pushToGitHub(){
         if((!img.dataUrl||img.dataUrl==='')&&(img.pushed||img.cdnUrl)){skipped++;continue;}
         const base64=img.dataUrl.split(',')[1];
         if(!base64){errors.push(`${img.name}: 画像データなし（再アップロードが必要）`);fail++;continue;}
-        const url=`https://api.github.com/repos/${state.githubRepo}/contents/recoreimages/${img.name}`;
-        let sha;
-        try{const res=await fetch(url,{headers:{Authorization:`token ${state.githubToken}`,Accept:'application/vnd.github.v3+json'}});if(res.ok)sha=(await res.json()).sha;}catch{}
-        const body={message:`add ${img.name}`,content:base64,branch:'main'};
-        if(sha)body.sha=sha;
-        const res=await fetch(url,{method:'PUT',headers:{Authorization:`token ${state.githubToken}`,'Content-Type':'application/json',Accept:'application/vnd.github.v3+json'},body:JSON.stringify(body)});
-        if(res.ok){success++;img.pushed=true;img.cdnUrl=`https://raw.githubusercontent.com/${state.githubRepo}/main/recoreimages/${img.name}`;}
-        else{
-          let msg=res.status+'';
-          try{const d=await res.json();if(d.message)msg+=' '+d.message;}catch{}
-          errors.push(`${img.name}: ${msg}`);
-          fail++;
-        }
+        const result=await githubPutFile(`recoreimages/${img.name}`,base64,`add ${img.name}`);
+        if(result.ok){success++;img.pushed=true;img.cdnUrl=`https://raw.githubusercontent.com/${state.githubRepo}/main/recoreimages/${img.name}`;}
+        else{errors.push(`${img.name}: ${result.msg}`);fail++;}
       }catch(e){errors.push(`${img.name}: ${e.message}`);fail++;}
     }
   }
@@ -1064,15 +1076,10 @@ async function cloudSave(){
   showToast('クラウド保存中...','');
   const progress=buildProgress();
   const content=btoa(unescape(encodeURIComponent(JSON.stringify(progress,null,1))));
-  const url=`https://api.github.com/repos/${state.githubRepo}/contents/progress.json`;
   try{
-    let sha;
-    try{const r=await fetch(url,{headers:{Authorization:`token ${state.githubToken}`,Accept:'application/vnd.github.v3+json'}});if(r.ok)sha=(await r.json()).sha;}catch{}
-    const body={message:`update progress ${new Date().toISOString()}`,content,branch:'main'};
-    if(sha)body.sha=sha;
-    const r=await fetch(url,{method:'PUT',headers:{Authorization:`token ${state.githubToken}`,'Content-Type':'application/json',Accept:'application/vnd.github.v3+json'},body:JSON.stringify(body)});
-    if(r.ok)showToast(`クラウド保存完了 ${Object.keys(progress.results).length}件 ☁️`,'ok');
-    else{const d=await r.json();showToast('保存失敗: '+(d.message||r.status),'warn');}
+    const result=await githubPutFile('progress.json',content,`update progress ${new Date().toISOString()}`);
+    if(result.ok)showToast(`クラウド保存完了 ${Object.keys(progress.results).length}件 ☁️`,'ok');
+    else showToast('保存失敗: '+result.msg,'warn');
   }catch(e){showToast('保存失敗: '+e.message,'warn');}
 }
 
