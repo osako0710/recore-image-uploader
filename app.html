@@ -40,6 +40,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
 .item-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;}
 .item-pkgi{font-family:var(--mono);font-size:11px;color:var(--accent2);letter-spacing:.1em;margin-bottom:5px;}
 .box-badge{display:inline-flex;align-items:center;gap:4px;background:#1a2e1a;color:#7fff9f;border:1px solid #2e5e2e;border-radius:6px;padding:4px 10px;font-size:13px;font-weight:700;font-family:var(--mono);letter-spacing:.05em;}
+.filter-chip{background:transparent;border:1px solid;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;}
+.filter-chip:hover{opacity:.85;}
 .item-name{font-size:15px;font-weight:700;margin-bottom:10px;line-height:1.4;}
 .item-tags{display:flex;gap:6px;flex-wrap:wrap;}
 .tag{font-family:var(--mono);font-size:11px;padding:3px 8px;border-radius:3px;background:var(--surface2);color:var(--muted);border:1px solid var(--border);}
@@ -162,6 +164,8 @@ let state={
   anthropicKey: localStorage.getItem('anthropic_key')||'',
   currentRefUrl:'',currentGenTitle:'',currentGenDesc:'',generating:false,
   pushErrors:[],
+  filterMode:'all',
+  searchQuery:'',
 };
 
 // ===== RENDER =====
@@ -316,11 +320,29 @@ function renderWork(){
   <div class="layout">
     <div class="main">
       <!-- Nav -->
-      <div class="nav-row">
-        <div style="font-family:var(--mono);font-size:12px;color:var(--muted);"><span style="color:var(--text)">${state.currentIndex+1}</span> / ${total}</div>
+      <div class="nav-row" style="flex-wrap:wrap;gap:8px;">
+        <div style="font-family:var(--mono);font-size:12px;color:var(--muted);">
+          <span style="color:var(--text)">${state.currentIndex+1}</span> / ${total}
+          ${state.filterMode!=='all'?`<span style="color:var(--accent2);margin-left:8px;">（${({ok:'OK',color:'色確認',size:'サイズ確認',used:'中古確認',other:'その他'})[state.filterMode]}: ${state.items.filter(matchesFilter).length}件）</span>`:''}
+        </div>
         <div style="display:flex;gap:6px;">
-          <button class="btn btn-ghost" id="prev-btn" style="padding:5px 12px;font-size:12px;" ${state.currentIndex===0?'disabled':''}>← 前へ</button>
-          <button class="btn btn-ghost" id="next-btn" style="padding:5px 12px;font-size:12px;" ${state.currentIndex>=total-1?'disabled':''}>次へ →</button>
+          <button class="btn btn-ghost" id="prev-btn" style="padding:5px 12px;font-size:12px;">← 前へ</button>
+          <button class="btn btn-ghost" id="next-btn" style="padding:5px 12px;font-size:12px;">次へ →</button>
+        </div>
+      </div>
+
+      <!-- 検索・フィルター -->
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;align-items:center;">
+        <div style="display:flex;gap:6px;flex:1;min-width:220px;">
+          <input id="search-box" class="input-field" style="margin:0;flex:1;font-size:13px;padding:8px 12px;" placeholder="BU-xxx / PKG-xxx / PKGI-xxx / 商品名で検索" value="${state.searchQuery||''}">
+          <button class="btn btn-ghost" id="search-btn" style="padding:8px 14px;font-size:13px;white-space:nowrap;">🔍 検索</button>
+        </div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;">
+          ${[['all','すべて'],['ok','OK'],['color','色確認'],['size','サイズ確認'],['used','中古確認'],['other','その他']].map(([k,label])=>{
+            const active=state.filterMode===k;
+            const colors={all:'var(--muted)',ok:'var(--ok)',color:'#ff8c47',size:'#47c8ff',used:'#ff5f8f',other:'#ffdd47'};
+            return `<button class="filter-chip ${active?'active':''}" data-filter="${k}" style="${active?`background:${colors[k]};color:#000;border-color:${colors[k]};`:`color:${colors[k]};border-color:${colors[k]}44;`}">${label}</button>`;
+          }).join('')}
         </div>
       </div>
 
@@ -536,9 +558,21 @@ function bindEvents(){
     }
   } else {
     document.getElementById('settings-btn')?.addEventListener('click',()=>{state.screen='setup';render();});
-    document.getElementById('prev-btn')?.addEventListener('click',()=>navigateTo(state.currentIndex-1));
-    document.getElementById('next-btn')?.addEventListener('click',()=>navigateTo(state.currentIndex+1));
-    document.getElementById('skip-btn')?.addEventListener('click',()=>navigateTo(state.currentIndex+1));
+    document.getElementById('prev-btn')?.addEventListener('click',()=>navigateFiltered(-1));
+    document.getElementById('next-btn')?.addEventListener('click',()=>navigateFiltered(1));
+    document.getElementById('skip-btn')?.addEventListener('click',()=>navigateFiltered(1));
+    document.getElementById('search-btn')?.addEventListener('click',doSearch);
+    document.getElementById('search-box')?.addEventListener('input',e=>{state.searchQuery=e.target.value;});
+    document.getElementById('search-box')?.addEventListener('keydown',e=>{if(e.key==='Enter')doSearch();});
+    document.querySelectorAll('[data-filter]').forEach(b=>{
+      b.addEventListener('click',()=>{
+        state.filterMode=b.dataset.filter;
+        // フィルター変更時、該当する最初の商品へ移動
+        const idx=firstMatchingIndex();
+        if(idx>=0)navigateTo(idx);
+        else render();
+      });
+    });
     document.getElementById('save-next-btn')?.addEventListener('click',saveAndNext);
     document.getElementById('note-input')?.addEventListener('input',e=>{state.currentNote=e.target.value;});
     document.getElementById('ref-url-input')?.addEventListener('input',e=>{state.currentRefUrl=e.target.value;});
@@ -667,6 +701,67 @@ function bindDragSort(){
       document.addEventListener('mouseup',onUp);
     });
   });
+}
+
+// 商品が現在のフィルターに合致するか
+function matchesFilter(item){
+  if(state.filterMode==='all')return true;
+  const pkgi=item['代表PKGI'];
+  const r=state.results[pkgi];
+  // 分類はresults優先、なければCSVの自動フラグ
+  if(r){
+    const cl=r.classifies||(r.classify?[r.classify]:[]);
+    return cl.includes(state.filterMode);
+  }
+  // 未処理：CSVの自動フラグで判定（色確認/サイズ確認/中古確認）
+  if(state.filterMode==='color')return item['色確認']==='YES';
+  if(state.filterMode==='size')return item['サイズ確認']==='YES';
+  if(state.filterMode==='used')return item['中古確認']==='YES';
+  return false;
+}
+
+// フィルターに合致する最初のインデックス
+function firstMatchingIndex(){
+  for(let i=0;i<state.items.length;i++){
+    if(matchesFilter(state.items[i]))return i;
+  }
+  return -1;
+}
+
+// フィルターを考慮して前後に移動
+function navigateFiltered(dir){
+  let i=state.currentIndex+dir;
+  while(i>=0&&i<state.items.length){
+    if(matchesFilter(state.items[i])){navigateTo(i);return;}
+    i+=dir;
+  }
+  showToast('この方向に該当する商品はありません','warn');
+}
+
+// BU/PKG/PKGI/商品名で検索してジャンプ
+function doSearch(){
+  const q=(state.searchQuery||'').trim().toUpperCase();
+  if(!q){showToast('検索語を入力してください','warn');return;}
+  // 完全一致・部分一致を順に探す
+  let foundIdx=-1;
+  for(let i=0;i<state.items.length;i++){
+    const it=state.items[i];
+    const pkgi=(it['代表PKGI']||'').toUpperCase();
+    const allPkgi=(it['全PKGI']||'').toUpperCase();
+    const bundling=(it['Bundling_ID']||'').toUpperCase();
+    const shelf=(it['Shelf_No']||'').toUpperCase();
+    const name=(it['商品名']||'').toUpperCase();
+    if(pkgi.includes(q)||allPkgi.includes(q)||bundling.includes(q)||shelf.includes(q)||name.includes(q)){
+      foundIdx=i;break;
+    }
+  }
+  if(foundIdx>=0){
+    state.filterMode='all'; // 検索時はフィルター解除して確実にジャンプ
+    navigateTo(foundIdx);
+    showToast(`見つかりました: ${state.items[foundIdx]['代表PKGI']}`,'ok');
+  }else{
+    showToast('該当する商品が見つかりません','warn');
+  }
 }
 
 function navigateTo(idx){
@@ -929,6 +1024,18 @@ function saveAndNext(){
   };
   saveState();
   showToast('保存しました ✓','ok');
+  // フィルター中は同じステータスの次の商品へ、通常は次へ
+  if(state.filterMode!=='all'){
+    let i=state.currentIndex+1;
+    while(i<state.items.length){
+      if(matchesFilter(state.items[i])){navigateTo(i);return;}
+      i++;
+    }
+    // 該当なし→完了通知
+    state.currentImages=[];state.currentNote='';state.currentColor='';state.currentSize='';state.currentClassifies=[];state.currentRefUrl='';state.currentGenTitle='';state.currentGenDesc='';
+    showToast('このフィルターの商品は全て完了しました 🎉','ok');render();
+    return;
+  }
   if(state.currentIndex<state.items.length-1)navigateTo(state.currentIndex+1);
   else{state.currentImages=[];state.currentNote='';state.currentColor='';state.currentSize='';state.currentClassifies=[];state.currentRefUrl='';state.currentGenTitle='';state.currentGenDesc='';render();}
 }
