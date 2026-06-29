@@ -39,6 +39,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
 /* Item card */
 .item-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;}
 .item-pkgi{font-family:var(--mono);font-size:11px;color:var(--accent2);letter-spacing:.1em;margin-bottom:5px;}
+.box-badge{display:inline-flex;align-items:center;gap:4px;background:#1a2e1a;color:#7fff9f;border:1px solid #2e5e2e;border-radius:6px;padding:4px 10px;font-size:13px;font-weight:700;font-family:var(--mono);letter-spacing:.05em;}
 .item-name{font-size:15px;font-weight:700;margin-bottom:10px;line-height:1.4;}
 .item-tags{display:flex;gap:6px;flex-wrap:wrap;}
 .tag{font-family:var(--mono);font-size:11px;padding:3px 8px;border-radius:3px;background:var(--surface2);color:var(--muted);border:1px solid var(--border);}
@@ -325,7 +326,10 @@ function renderWork(){
 
       <!-- Item info -->
       <div class="item-card">
-        <div class="item-pkgi">${item['代表PKGI']}</div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px;">
+          <div class="item-pkgi" style="margin:0;">${item['代表PKGI']}</div>
+          ${bundlingIds.length?`<span class="box-badge">📦 箱番: ${bundlingIds.join(' / ')}</span>`:''}
+        </div>
         <div class="item-name">${item['商品名']}</div>
         <div class="flag-badges">
           ${needColor?`<span class="flag-badge flag-color">🎨 色確認必要</span>`:''}
@@ -336,6 +340,7 @@ function renderWork(){
           <span class="tag">¥${Number(item['単価']||0).toLocaleString()}</span>
           <span class="tag">数量${item['数量合計']||1}</span>
           <span class="tag">${(item['Shop_Key']||'').replace(/_/g,'.')}</span>
+          ${item['Shelf_No']?`<span class="tag">棚: ${(item['Shelf_No']||'').split(';')[0]}</span>`:''}
           ${isStacked?`<span class="tag tag-stack">縦積み ${pkgiList.length}件まとめ</span>`:''}
         </div>
       </div>
