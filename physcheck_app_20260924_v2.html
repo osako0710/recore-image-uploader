@@ -121,6 +121,7 @@ textarea{min-height:70px}
 <div id="toast"></div>
 <div class="sheet" id="sheet"><div class="in" id="sheetin"></div></div>
 
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
 "use strict";
 var CSV_URL='phys_items_20260924_v2.csv';
@@ -287,6 +288,7 @@ function renderHome(){
   h.push('<div class="sec">月</div><div class="chips" id="fm"></div>');
   h.push('<div class="sec">確認の種類</div><div class="chips" id="ft"></div>');
   h.push('<div class="sec">検索（PKGI・商品名・行・箱・袋）</div><input type="search" id="q" placeholder="例: PKGI-01930770 / BU-0073 / ジャケット" value="'+esc(ST.filters.q)+'">');
+  h.push('<button class="btn" data-act="scan" style="width:100%;margin-top:8px">📷 バーコードを読む（BU・PKGI）</button>');
   h.push('<div class="sw"><b>完了も表示</b><button class="chip'+(ST.showDone?' on':'')+'" id="tgdone" data-act="tgdone">'+(ST.showDone?'ON':'OFF')+'</button></div>');
   h.push('<div class="sec" id="boxhead"></div><div class="boxlist" id="boxlist"></div>');
   $('#app').innerHTML=h.join('');
@@ -662,11 +664,28 @@ function openSheet(){
     '<label class="btn" style="text-align:center;line-height:28px">CSV を手動で読み込む<input type="file" accept=".csv,text/csv" data-act="csvfile" style="display:none"></label>'+
     '</div>'+
     '<div class="sw"><b>完了も表示</b><button class="chip'+(ST.showDone?' on':'')+'" data-act="tgdone2">'+(ST.showDone?'ON':'OFF')+'</button></div>'+
-    '<div class="hint" style="margin-top:12px">クラウド機能は旧アプリ（app.html）で登録済みの認証情報を使います。未設定の場合は旧アプリの設定画面で登録してください。</div>'+
+    '<div class="hint" style="margin-top:12px">クラウド保存の認証（未設定なら大迫から受け取った値を貼る）: '+(localStorage.getItem('gh_token')?'設定済み':'<b>未設定</b>')+'</div>'+
+    '<input type="password" id="ghtok" placeholder="認証トークンを貼り付け" autocomplete="off" style="width:100%">'+
     '<div class="btns"><button class="btn" data-act="closesheet">閉じる</button></div>';
   $('#sheet').classList.add('open');
 }
-function closeSheet(){$('#sheet').classList.remove('open');}
+function closeSheet(){stopScan();$('#sheet').classList.remove('open');}
+var _scan=null;
+function stopScan(){if(_scan){var q=_scan;_scan=null;q.stop().catch(function(){}).then(function(){try{q.clear();}catch(e){}});}}
+function openScan(){
+  if(!window.Html5Qrcode){toast('読取部品を読み込めません。通信を確認してください','ng');return;}
+  $('#sheetin').innerHTML='<h3>バーコード読取</h3><div id="reader" style="width:100%"></div><div class="btns"><button class="btn" data-act="closesheet">閉じる</button></div>';
+  $('#sheet').classList.add('open');
+  _scan=new Html5Qrcode('reader');
+  _scan.start({facingMode:'environment'},{fps:10,qrbox:{width:260,height:120}},function(txt){
+    txt=String(txt).trim();closeSheet();
+    var box=ST.items.filter(function(it){return it['箱']===txt;});
+    if(box.length){draftKey=null;ST.boxId=txt;ST.view='box';render();return;}
+    var one=ST.items.filter(function(it){return it['PKGI']===txt;});
+    if(one.length===1){draftKey=null;ST.cardKey=one[0]._key;ST.view='card';render();return;}
+    ST.view='home';ST.filters.q=txt;render();toast('読取: '+txt+'（'+(one.length||'一致なし')+'）');
+  },function(){}).catch(function(e){closeSheet();toast('カメラを起動できません: '+e,'ng');});
+}
 
 /* ---------- イベント ---------- */
 document.addEventListener('click',function(e){
@@ -712,6 +731,7 @@ document.addEventListener('click',function(e){
     if(idx>0){ST.cardKey=ks[idx-1];draftKey=null;render();}
   }
   else if(act==='csave'){closeSheet();cloudSave();}
+  else if(act==='scan'){openScan();}
   else if(act==='cload'){closeSheet();cloudLoad();}
   else if(act==='exp'){closeSheet();exportCSV();}
   else if(act==='closesheet'){closeSheet();}
@@ -728,6 +748,7 @@ document.addEventListener('change',function(e){
 var _qT=null;
 document.addEventListener('input',function(e){
   var t=e.target,k=t.getAttribute&&t.getAttribute('data-k');
+  if(t.id==='ghtok'){var v=t.value.trim();if(v){localStorage.setItem('gh_token',v);toast('認証を保存しました','ok');}return;}
   if(t.id==='q'){
     clearTimeout(_qT);_qT=setTimeout(function(){ST.filters.q=t.value.trim();updateHome();},220);return;
   }
