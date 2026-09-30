@@ -121,7 +121,7 @@ textarea{min-height:70px}
 <div id="toast"></div>
 <div class="sheet" id="sheet"><div class="in" id="sheetin"></div></div>
 
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="vendor/html5-qrcode_2.3.8.min.js"></script>
 <script>
 "use strict";
 var CSV_URL='phys_items_20260924_v2.csv';
@@ -625,7 +625,7 @@ async function cloudSave(){
       toast('クラウド保存 完了 '+Object.keys(merged).length+'件（写真 新規'+im.ok+(im.ng?' / 失敗'+im.ng:'')+'）','ok');}
     else toast('保存失敗: '+r.msg,'ng');
   }catch(e){
-    if(e.message==='NOAUTH')toast('クラウド認証が未設定です。旧アプリ（app.html）の設定画面で登録してください','warn');
+    if(e.message==='NOAUTH')toast('クラウド認証が未設定です。右上の ⚙ 設定 →「認証トークンを貼り付け」欄に貼ってください','warn');
     else toast('クラウド保存エラー: '+e.message,'ng');
   }
 }
@@ -647,7 +647,7 @@ async function cloudLoad(){
     draftKey=null;persist(true);render();
     toast('クラウド読込 完了 '+Object.keys(ST.results).length+'件','ok');
   }catch(e){
-    if(e.message==='NOAUTH')toast('クラウド認証が未設定です。旧アプリ（app.html）の設定画面で登録してください','warn');
+    if(e.message==='NOAUTH')toast('クラウド認証が未設定です。右上の ⚙ 設定 →「認証トークンを貼り付け」欄に貼ってください','warn');
     else toast('クラウド読込エラー: '+e.message,'ng');
   }
 }
@@ -666,23 +666,31 @@ function openSheet(){
     '<div class="sw"><b>完了も表示</b><button class="chip'+(ST.showDone?' on':'')+'" data-act="tgdone2">'+(ST.showDone?'ON':'OFF')+'</button></div>'+
     '<div class="hint" style="margin-top:12px">クラウド保存の認証（未設定なら大迫から受け取った値を貼る）: '+(localStorage.getItem('gh_token')?'設定済み':'<b>未設定</b>')+'</div>'+
     '<input type="password" id="ghtok" placeholder="認証トークンを貼り付け" autocomplete="off" style="width:100%">'+
+    (localStorage.getItem('gh_token')?'<button class="btn sm" data-act="ghclear" style="margin-top:8px">認証を消す</button>':'')+
     '<div class="btns"><button class="btn" data-act="closesheet">閉じる</button></div>';
   $('#sheet').classList.add('open');
 }
 function closeSheet(){stopScan();$('#sheet').classList.remove('open');}
 var _scan=null;
+function normCode(s){ // 小文字・空白・ハイフン抜けを CSV の表記（BU-/PKGI-）に揃える
+  s=String(s).toUpperCase().replace(/\s+/g,'');
+  var m=s.match(/^(BU|PKGI)-?(\d+)$/);
+  return m?m[1]+'-'+m[2]:s;
+}
 function stopScan(){if(_scan){var q=_scan;_scan=null;q.stop().catch(function(){}).then(function(){try{q.clear();}catch(e){}});}}
 function openScan(){
-  if(!window.Html5Qrcode){toast('読取部品を読み込めません。通信を確認してください','ng');return;}
+  if(!window.Html5Qrcode){toast('読取部品を読み込めません。一度通信のある場所でページを開き直してください','ng');return;}
   $('#sheetin').innerHTML='<h3>バーコード読取</h3><div id="reader" style="width:100%"></div><div class="btns"><button class="btn" data-act="closesheet">閉じる</button></div>';
   $('#sheet').classList.add('open');
   _scan=new Html5Qrcode('reader');
   _scan.start({facingMode:'environment'},{fps:10,qrbox:{width:260,height:120}},function(txt){
-    txt=String(txt).trim();closeSheet();
+    txt=normCode(txt);closeSheet();
     var box=ST.items.filter(function(it){return it['箱']===txt;});
-    if(box.length){draftKey=null;ST.boxId=txt;ST.view='box';render();return;}
+    if(box.length){draftKey=null;ST.filters.q='';ST.boxId=txt;ST.view='box';render();
+      if(!box.some(function(it){return !isDone(it._key);}))toast('この箱は完了済みです','warn');return;}
     var one=ST.items.filter(function(it){return it['PKGI']===txt;});
-    if(one.length===1){draftKey=null;ST.cardKey=one[0]._key;ST.view='card';render();return;}
+    if(one.length===1){draftKey=null;ST.filters.q='';ST.cardKey=one[0]._key;ST.view='card';render();
+      if(isDone(one[0]._key))toast('この行は完了済みです（再編集できます）','warn');return;}
     ST.view='home';ST.filters.q=txt;render();toast('読取: '+txt+'（'+(one.length||'一致なし')+'）');
   },function(){}).catch(function(e){closeSheet();toast('カメラを起動できません: '+e,'ng');});
 }
@@ -735,9 +743,11 @@ document.addEventListener('click',function(e){
   else if(act==='cload'){closeSheet();cloudLoad();}
   else if(act==='exp'){closeSheet();exportCSV();}
   else if(act==='closesheet'){closeSheet();}
+  else if(act==='ghclear'){if(confirm('この端末のクラウド認証を消しますか？')){localStorage.removeItem('gh_token');toast('認証を消しました','warn');openSheet();}}
 });
 document.addEventListener('change',function(e){
   var t=e.target;
+  if(t.id==='ghtok'){var v=t.value.trim();t.value='';if(v){localStorage.setItem('gh_token',v);toast('認証を保存しました','ok');openSheet();}return;}
   if(t.getAttribute&&t.getAttribute('data-act')==='imgadd'&&t.files&&t.files.length){addImages(Array.prototype.slice.call(t.files));t.value='';}
   if(t.getAttribute&&t.getAttribute('data-act')==='csvfile'&&t.files&&t.files[0]){
     var fr=new FileReader();
@@ -748,7 +758,6 @@ document.addEventListener('change',function(e){
 var _qT=null;
 document.addEventListener('input',function(e){
   var t=e.target,k=t.getAttribute&&t.getAttribute('data-k');
-  if(t.id==='ghtok'){var v=t.value.trim();if(v){localStorage.setItem('gh_token',v);toast('認証を保存しました','ok');}return;}
   if(t.id==='q'){
     clearTimeout(_qT);_qT=setTimeout(function(){ST.filters.q=t.value.trim();updateHome();},220);return;
   }
