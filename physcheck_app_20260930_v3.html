@@ -800,10 +800,18 @@ document.addEventListener('click',function(e){
   else if(act==='closesheet'){closeSheet();}
 });
 // 送れなかった分は、次の操作時（間引き 20 秒）とオンライン復帰時に再送する。進捗の取り直しは 60 秒おき
-document.addEventListener('click',function(){
+document.addEventListener('click',function(e){
   if(!CLOUD_OK&&Date.now()-_lastCloud>20000)cloudLoad().then(flush);
-  // ほかの端末の進捗も取り込む（間引き 60 秒）
-  else if(CLOUD_OK&&!_flushing&&Date.now()-_lastCloud>60000)cloudLoad().then(flush);
+  // ほかの端末の進捗も取り込む（間引き 60 秒）。保存の押下なら取り込み終わってから押し直す
+  else if(CLOUD_OK&&!_flushing&&Date.now()-_lastCloud>60000){
+    var t=e.target.closest&&e.target.closest('[data-act]'),act=t&&t.getAttribute('data-act');
+    if(act==='save'||act==='absent'||act==='later'||(act==='pres'&&t.getAttribute('data-v')==='no')){
+      e.stopPropagation();e.preventDefault();
+      var dk=draftKey,d=draft;
+      cloudLoad().then(function(){ if(draftKey===dk&&draft===d&&document.contains(t))t.click(); else flush(); });
+    }
+    else cloudLoad().then(flush);
+  }
   else if(QUEUE.length&&Date.now()-_lastFlush>20000)flush();
 },true);
 window.addEventListener('online',function(){if(!CLOUD_OK)cloudLoad().then(flush);else flush();});
