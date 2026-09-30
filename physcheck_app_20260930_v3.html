@@ -611,11 +611,14 @@ function updateSync(){
   el.textContent=(_flushing?'送信中… ':'')+'未送信 '+QUEUE.length+' 件（電波が戻ったら自動送信）';
 }
 async function post(body){
+  // 応答が返らないまま止まると送信中のまま固まるので、30 秒で打ち切って送れなかった扱いにする
+  var ac=new AbortController(),tm=setTimeout(function(){ac.abort();},30000);
   try{
-    var r=await fetch(API,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+    var r=await fetch(API,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),signal:ac.signal});
     try{await r.text();}catch(e){}
     return r.status;
   }catch(e){return 0;}
+  finally{clearTimeout(tm);}
 }
 function rowData(k){
   return Object.assign({},ST.results[k]);
@@ -665,6 +668,8 @@ async function flush(){
       else stop=true;
       saveQueue();persist(true);updateSync();
     }
+    // 送れなかった間にほかの端末が同じ行を保存したかもしれない。進捗を取り込み直すまで再送しない
+    if(stop)CLOUD_OK=false;
   }finally{
     _flushing=false;updateSync();
     if(_flushAgain){_flushAgain=false;setTimeout(flush,500);}
