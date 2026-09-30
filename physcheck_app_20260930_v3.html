@@ -822,7 +822,8 @@ document.addEventListener('click',function(e){
   }
   else if(QUEUE.length&&Date.now()-_lastFlush>20000)flush();
 },true);
-window.addEventListener('online',function(){if(!CLOUD_OK)cloudLoad().then(flush);else flush();});
+// 電波が戻ったら、送る前に必ずほかの端末の進捗を取り込む（途切れている間の更新を上書きしない）
+window.addEventListener('online',function(){cloudLoad().then(flush);});
 document.addEventListener('toggle',function(e){if(e.target.classList&&e.target.classList.contains('flt'))ST.fltOpen=e.target.open;},true);
 document.addEventListener('change',function(e){
   var t=e.target;
