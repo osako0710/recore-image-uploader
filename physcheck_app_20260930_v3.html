@@ -117,6 +117,7 @@ details.flt[open]{padding-bottom:12px}
 #sync{position:fixed;left:0;right:0;bottom:0;z-index:40;background:#fff;border-top:1px solid var(--line);padding:10px 14px calc(10px + env(safe-area-inset-bottom));font-size:15px;font-weight:700;text-align:center}
 #sync.ok{color:var(--ok)}
 #sync.wait{color:var(--warn);background:#fff7e6}
+#sync.ng{color:#fff;background:var(--ng,#c0392b);cursor:pointer}
 #toast{bottom:64px!important}
 .intro{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px}
 .intro .in{background:#fff;border-radius:16px;padding:20px;width:100%;max-width:420px}
@@ -236,7 +237,7 @@ function persist(now){
 
 /* ---------- 完了判定 ---------- */
 function res(k){return ST.results[k];}
-function isDone(k){var r=ST.results[k];return !!r&&(r.absent===true||(!!r.checkedAt&&r.skipped!==true));}
+function isDone(k){var r=ST.results[k];if(FAILED&&FAILED.indexOf(k)>=0)return false;return !!r&&(r.absent===true||(!!r.checkedAt&&r.skipped!==true));}
 function isSkipped(k){var r=ST.results[k];return !!r&&r.skipped===true;}
 
 /* ---------- index ---------- */
@@ -576,15 +577,25 @@ function exportCSV(){
 var API='https://pqfsanwopptslgdrdebn.supabase.co/functions/v1/physcheck-save';
 var LS_Q='physcheck_v3_queue';
 var QUEUE=[];            // 未送信の行 key
+var LS_F='physcheck_v3_failed';
+var FAILED=[];           // 窓口に断られた行 key（入力し直して保存するまで未完了扱い）
 var _flushing=false,_flushAgain=false,_lastFlush=0;
-function loadQueue(){try{QUEUE=JSON.parse(localStorage.getItem(LS_Q)||'[]')||[];}catch(e){QUEUE=[];}}
-function saveQueue(){try{localStorage.setItem(LS_Q,JSON.stringify(QUEUE));}catch(e){}}
-function enqueue(k){if(QUEUE.indexOf(k)<0)QUEUE.push(k);saveQueue();updateSync();}
+function loadQueue(){
+  try{QUEUE=JSON.parse(localStorage.getItem(LS_Q)||'[]')||[];}catch(e){QUEUE=[];}
+  try{FAILED=JSON.parse(localStorage.getItem(LS_F)||'[]')||[];}catch(e){FAILED=[];}
+}
+function saveQueue(){try{localStorage.setItem(LS_Q,JSON.stringify(QUEUE));localStorage.setItem(LS_F,JSON.stringify(FAILED));}catch(e){}}
+function enqueue(k){var f=FAILED.indexOf(k);if(f>=0)FAILED.splice(f,1);if(QUEUE.indexOf(k)<0)QUEUE.push(k);saveQueue();updateSync();}
+// 断られた行は再送キューから外し、状態表示で「保存できませんでした」を出し続ける
+function markFailed(k){var q=QUEUE.indexOf(k);if(q>=0)QUEUE.splice(q,1);if(FAILED.indexOf(k)<0)FAILED.push(k);saveQueue();}
 function pendingPhotos(k){
   var r=ST.results[k];return ((r&&r.images)||[]).filter(function(n){var e=IMG[n];return e&&e.d&&!e.p&&!e.bad;});
 }
 function updateSync(){
   var el=$('#sync');if(!el)return;
+  if(FAILED.length){el.className='ng';el.setAttribute('data-act','openfailed');
+    el.textContent='保存できませんでした '+FAILED.length+' 件（押して入力し直す）';return;}
+  el.removeAttribute('data-act');
   if(!QUEUE.length){el.className='ok';el.textContent='保存済み ✓';return;}
   el.className='wait';
   el.textContent=(_flushing?'送信中… ':'')+'未送信 '+QUEUE.length+' 件（電波が戻ったら自動送信）';
@@ -609,19 +620,23 @@ async function flush(){
   try{
     var keys=QUEUE.slice(),stop=false;
     for(var i=0;i<keys.length&&!stop;i++){
-      var k=keys[i],ph=pendingPhotos(k);
+      var k=keys[i],ph=pendingPhotos(k),badPhoto=false;
       for(var j=0;j<ph.length;j++){
         var e=IMG[ph[j]],st=await post({op:'photo',name:ph[j],jpegBase64:e.d.split(',')[1]});
         if(st===200||st===409){e.p=true;e.d='';}
-        else if(st===400){e.bad=true;toast('写真 1 枚を送れませんでした。撮り直してください','ng');}
+        else if(st===400){
+          // 断られた写真は行から外す（送っていない写真名をクラウドに残さない）。行は撮り直すまで送らない
+          var r=ST.results[k];if(r&&r.images)r.images=r.images.filter(function(n){return n!==ph[j];});
+          delete IMG[ph[j]];badPhoto=true;
+        }
         else {stop=true;break;}
       }
       if(stop)break;
+      if(badPhoto){markFailed(k);toast('写真を送れませんでした。撮り直して保存してください','ng');persist(true);updateSync();continue;}
       var rs=await post({op:'row',key:k,data:rowData(k)});
-      if(rs===200||rs===400){
-        QUEUE.splice(QUEUE.indexOf(k),1);
-        if(rs===400)toast('1 件を保存できませんでした。入力し直してください','ng');
-      }else stop=true;
+      if(rs===200){QUEUE.splice(QUEUE.indexOf(k),1);}
+      else if(rs===400){markFailed(k);toast('保存できませんでした。入力し直してください','ng');}
+      else stop=true;
       saveQueue();persist(true);updateSync();
     }
   }finally{
@@ -646,12 +661,17 @@ async function cloudLoad(){
     if(!r.ok)return;
     var p=await r.json();
     if(!p||!p.results||typeof p.results!=='object')return;
+    var cur=ST.view==='card'?ST.cardKey:null,before=cur&&ST.results[cur];
     ST.results=mergeResults(ST.results,p.results);
     Object.keys(ST.results).forEach(function(k){
       (ST.results[k].images||[]).forEach(function(n){ if(!IMG[n])IMG[n]={d:'',p:true}; });
     });
     persist(true);
     if(ST.view!=='card')render();
+    else if(cur&&ST.cardKey===cur&&ST.results[cur]!==before){
+      // 開いているカードより新しい答えがクラウドにあった。古い下書きで上書きしないよう開き直す
+      draftKey=null;render();toast('ほかの端末で保存された内容を表示しました','warn');
+    }
   }catch(e){}
 }
 
@@ -738,6 +758,7 @@ document.addEventListener('click',function(e){
   }
   else if(act==='scan'){openScan();}
   else if(act==='flushnow'){closeSheet();flush();}
+  else if(act==='openfailed'){if(FAILED.length&&ST.byKey[FAILED[0]]){ST.cardKey=FAILED[0];draftKey=null;ST.view='card';render();}}
   else if(act==='introok'){try{localStorage.setItem(LS_INTRO,'1');}catch(e){}var ov=$('#intro');if(ov)ov.remove();}
   else if(act==='reload'){location.reload();}
   else if(act==='exp'){closeSheet();exportCSV();}
