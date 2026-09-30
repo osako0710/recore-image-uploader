@@ -623,7 +623,7 @@ function rowData(k){
 async function flush(){
   if(_flushing){_flushAgain=true;return;}
   if(!QUEUE.length||navigator.onLine===false){updateSync();return;}
-  if(!CLOUD_OK){updateSync();return;} // ほかの端末の進捗を取り込めるまでは送らない（取り込み成功後に cloudLoad().then(flush) で送る）
+  if(!CLOUD_OK||_cloudP){updateSync();return;} // ほかの端末の進捗を取り込めるまでは送らない（取り込み成功後に cloudLoad().then(flush) で送る）
   _flushing=true;_lastFlush=Date.now();updateSync();
   try{
     var keys=QUEUE.slice(),stop=false;
@@ -680,7 +680,13 @@ function mergeResults(local,cloud){
   }
   return out;
 }
-async function cloudLoad(){
+// 取り込みは同時に 1 本だけ。取り込み中は送信も保存の押下も待たせる
+var _cloudP=null;
+function cloudLoad(){
+  if(!_cloudP)_cloudP=_cloudLoad().finally(function(){_cloudP=null;});
+  return _cloudP;
+}
+async function _cloudLoad(){
   _lastCloud=Date.now();
   try{
     var r=await fetch(API+'?op=progress');
@@ -701,6 +707,7 @@ async function cloudLoad(){
     Object.keys(p.results).forEach(function(k){
       // クラウドの行が勝ったら、同じ名前で手元に残る未送信の写真は古い行のものなので捨てる
       var won=ST.results[k]===p.results[k];
+      if(won&&old[k])(old[k].images||[]).forEach(function(n){ if(IMG[n]&&!IMG[n].p&&(p.results[k].images||[]).indexOf(n)<0)delete IMG[n]; });
       ((p.results[k]&&p.results[k].images)||[]).forEach(function(n){ if(!IMG[n]||(won&&!IMG[n].p))IMG[n]={d:'',p:true}; });
     });
     persist(true);
@@ -809,7 +816,7 @@ document.addEventListener('click',function(e){
 // 送れなかった分は、次の操作時（間引き 20 秒）とオンライン復帰時に再送する。進捗の取り直しは 60 秒おき
 document.addEventListener('click',function(e){
   // 読込に失敗していたら 20 秒おき、ほかの端末の進捗は 60 秒おきに取り込む
-  if((!CLOUD_OK&&Date.now()-_lastCloud>20000)||(CLOUD_OK&&!_flushing&&Date.now()-_lastCloud>60000)){
+  if(_cloudP||(!CLOUD_OK&&Date.now()-_lastCloud>20000)||(CLOUD_OK&&!_flushing&&Date.now()-_lastCloud>60000)){
     var t=e.target.closest&&e.target.closest('[data-act]'),act=t&&t.getAttribute('data-act');
     if(act==='save'||act==='absent'||act==='later'||(act==='pres'&&t.getAttribute('data-v')==='no')){
       // 保存の押下は取り込み終わってから押し直す（古い下書きで新しい答えを上書きしない）
