@@ -652,6 +652,7 @@ async function flush(){
         else {stop=true;break;}
       }
       if(stop)break;
+      if(badPhoto&&REV[k]!==rv){_flushAgain=true;continue;} // 送信中に保存し直された。新しい内容を次の周回で送る
       if(badPhoto){markFailed(k);toast('写真を送れませんでした。撮り直して保存してください','ng');persist(true);updateSync();continue;}
       var rs=await post({op:'row',key:k,data:rowData(k)});
       if(REV[k]!==rv){_flushAgain=true;}  // 送信中に保存し直された。新しい内容を次の周回で送る
@@ -801,11 +802,11 @@ document.addEventListener('click',function(e){
 });
 // 送れなかった分は、次の操作時（間引き 20 秒）とオンライン復帰時に再送する。進捗の取り直しは 60 秒おき
 document.addEventListener('click',function(e){
-  if(!CLOUD_OK&&Date.now()-_lastCloud>20000)cloudLoad().then(flush);
-  // ほかの端末の進捗も取り込む（間引き 60 秒）。保存の押下なら取り込み終わってから押し直す
-  else if(CLOUD_OK&&!_flushing&&Date.now()-_lastCloud>60000){
+  // 読込に失敗していたら 20 秒おき、ほかの端末の進捗は 60 秒おきに取り込む
+  if((!CLOUD_OK&&Date.now()-_lastCloud>20000)||(CLOUD_OK&&!_flushing&&Date.now()-_lastCloud>60000)){
     var t=e.target.closest&&e.target.closest('[data-act]'),act=t&&t.getAttribute('data-act');
     if(act==='save'||act==='absent'||act==='later'||(act==='pres'&&t.getAttribute('data-v')==='no')){
+      // 保存の押下は取り込み終わってから押し直す（古い下書きで新しい答えを上書きしない）
       e.stopPropagation();e.preventDefault();
       var dk=draftKey,d=draft;
       cloudLoad().then(function(){ if(draftKey===dk&&draft===d&&document.contains(t))t.click(); else flush(); });
