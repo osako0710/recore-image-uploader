@@ -689,8 +689,10 @@ function cloudLoad(){
 }
 async function _cloudLoad(){
   _lastCloud=Date.now();
+  // 電波が弱いと応答が返らないまま止まるので、15 秒で打ち切って読込失敗として扱う
+  var ac=new AbortController(),tm=setTimeout(function(){ac.abort();},15000);
   try{
-    var r=await fetch(API+'?op=progress');
+    var r=await fetch(API+'?op=progress',{signal:ac.signal});
     if(!r.ok){CLOUD_OK=false;return false;}
     var p=await r.json();
     if(!p||!p.results||typeof p.results!=='object'){CLOUD_OK=false;return false;}
@@ -719,7 +721,7 @@ async function _cloudLoad(){
     }
     return true;
   }catch(e){CLOUD_OK=false;return false;}
-  finally{CLOUD_READY=true;updateSync();}
+  finally{clearTimeout(tm);CLOUD_READY=true;updateSync();}
 }
 
 /* ---------- 設定シート ---------- */
@@ -810,7 +812,10 @@ document.addEventListener('click',function(e){
   else if(act==='openfailed'){if(FAILED.length&&ST.byKey[FAILED[0]]){ST.cardKey=FAILED[0];draftKey=null;ST.view='card';render();}}
   else if(act==='introok'){try{localStorage.setItem(LS_INTRO,'1');}catch(e){}var ov=$('#intro');if(ov)ov.remove();}
   else if(act==='reload'){location.reload();}
-  else if(act==='exp'){closeSheet();exportCSV();}
+  else if(act==='exp'){closeSheet();cloudLoad().then(function(ok){
+    // ほかの端末の最新を取り込んでから書き出す。取り込めなければ書き出さない
+    if(ok)exportCSV(); else toast('電波が弱く最新を確認できませんでした。電波の良い所でもう一度押してください','warn');
+  });}
   else if(act==='typecode'){closeSheet();openSearch('箱の番号を入力して探してください');}
   else if(act==='closesheet'){closeSheet();}
 });
