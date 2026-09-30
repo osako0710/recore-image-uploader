@@ -657,6 +657,7 @@ async function flush(){
       if(stop)break;
       if(badPhoto&&REV[k]!==rv){_flushAgain=true;continue;} // 送信中に保存し直された。新しい内容を次の周回で送る
       if(badPhoto){markFailed(k);toast('写真を送れませんでした。撮り直して保存してください','ng');persist(true);updateSync();continue;}
+      if(REV[k]!==rv){_flushAgain=true;continue;} // 写真の送信中に保存し直された。新しい写真を送ってから行を送る
       var rs=await post({op:'row',key:k,data:rowData(k)});
       if(REV[k]!==rv){_flushAgain=true;}  // 送信中に保存し直された。新しい内容を次の周回で送る
       else if(rs===200){QUEUE.splice(QUEUE.indexOf(k),1);}
