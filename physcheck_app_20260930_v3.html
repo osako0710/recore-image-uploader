@@ -590,6 +590,11 @@ function saveQueue(){try{localStorage.setItem(LS_Q,JSON.stringify(QUEUE));localS
 function enqueue(k){REV[k]=(REV[k]||0)+1;var f=FAILED.indexOf(k);if(f>=0)FAILED.splice(f,1);if(QUEUE.indexOf(k)<0)QUEUE.push(k);saveQueue();updateSync();}
 // 断られた行は再送キューから外し、状態表示で「保存できませんでした」を出し続ける
 function markFailed(k){var q=QUEUE.indexOf(k);if(q>=0)QUEUE.splice(q,1);if(FAILED.indexOf(k)<0)FAILED.push(k);saveQueue();}
+function freshPhotoName(k){
+  var it=ST.byKey[k],r=ST.results[k]||{},used=(r.images||[]),free=[];
+  for(var n=1;n<=99;n++){var nm=it['PKGI']+'_'+it['行']+'_'+n+'.jpg';if(!IMG[nm]&&used.indexOf(nm)<0)free.push(nm);}
+  return free.length?free[Math.floor(Math.random()*free.length)]:null;
+}
 function pendingPhotos(k){
   var r=ST.results[k];return ((r&&r.images)||[]).filter(function(n){var e=IMG[n];return e&&e.d&&!e.p&&!e.bad;});
 }
@@ -622,10 +627,23 @@ async function flush(){
   try{
     var keys=QUEUE.slice(),stop=false;
     for(var i=0;i<keys.length&&!stop;i++){
-      var k=keys[i],rv=REV[k],ph=pendingPhotos(k),badPhoto=false;
+      var k=keys[i],rv=REV[k],ph=pendingPhotos(k),badPhoto=false,row=ST.results[k];
+      var lost=((row&&row.images)||[]).filter(function(n){var e=IMG[n];return !e||(!e.p&&!e.d);});
+      if(lost.length){
+        row.images=row.images.filter(function(n){return lost.indexOf(n)<0;});
+        lost.forEach(function(n){delete IMG[n];});
+        markFailed(k);toast('写真が端末から消えていました。撮り直して保存してください','ng');persist(true);updateSync();continue;
+      }
       for(var j=0;j<ph.length;j++){
         var e=IMG[ph[j]],st=await post({op:'photo',name:ph[j],jpegBase64:e.d.split(',')[1]});
-        if(st===200||st===409){e.p=true;e.d='';}
+        // 同じ名前の写真がすでにある（別の端末が同じ番号で撮った等）→ 空いている番号に付け替えて送り直す
+        for(var t=0;st===409&&t<3;t++){
+          var nn=freshPhotoName(k);if(!nn)break;
+          IMG[nn]=e;delete IMG[ph[j]];
+          row.images=row.images.map(function(n){return n===ph[j]?nn:n;});ph[j]=nn;persist(true);
+          st=await post({op:'photo',name:nn,jpegBase64:e.d.split(',')[1]});
+        }
+        if(st===200){e.p=true;e.d='';}
         else if(st===400){
           // 断られた写真は行から外す（送っていない写真名をクラウドに残さない）。行は撮り直すまで送らない
           var r=ST.results[k];if(r&&r.images)r.images=r.images.filter(function(n){return n!==ph[j];});
@@ -668,12 +686,12 @@ async function cloudLoad(){
     Object.keys(ST.results).forEach(function(k){
       // v2 から引き継いだ答えや未送信の答え（クラウドに無い・手元の方が新しい）を送信キューへ
       var c=p.results[k],lt=Date.parse(ST.results[k].checkedAt||'')||0,ct=c?(Date.parse(c.checkedAt||'')||0):-1;
-      if(lt>ct&&ST.byKey[k]&&FAILED.indexOf(k)<0&&QUEUE.indexOf(k)<0)QUEUE.push(k);
+      if(ST.results[k].checkedAt&&lt>ct&&ST.byKey[k]&&FAILED.indexOf(k)<0&&QUEUE.indexOf(k)<0)QUEUE.push(k);
     });
     saveQueue();
     ST.results=mergeResults(ST.results,p.results);
-    Object.keys(ST.results).forEach(function(k){
-      (ST.results[k].images||[]).forEach(function(n){ if(!IMG[n])IMG[n]={d:'',p:true}; });
+    Object.keys(p.results).forEach(function(k){
+      ((p.results[k]&&p.results[k].images)||[]).forEach(function(n){ if(!IMG[n])IMG[n]={d:'',p:true}; });
     });
     persist(true);
     if(ST.view!=='card')render();
