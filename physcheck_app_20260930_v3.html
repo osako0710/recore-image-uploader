@@ -640,7 +640,9 @@ async function flush(){
         for(var t=0;st===409&&t<3;t++){
           var nn=freshPhotoName(k);if(!nn)break;
           IMG[nn]=e;delete IMG[ph[j]];
-          row.images=row.images.map(function(n){return n===ph[j]?nn:n;});ph[j]=nn;persist(true);
+          var ren=function(n){return n===ph[j]?nn:n;},cr=ST.results[k];
+          row.images=row.images.map(ren);if(cr&&cr!==row&&cr.images)cr.images=cr.images.map(ren); // 送信中に保存し直された行も付け替える
+          ph[j]=nn;persist(true);
           st=await post({op:'photo',name:nn,jpegBase64:e.d.split(',')[1]});
         }
         if(st===200){e.p=true;e.d='';}
@@ -681,9 +683,9 @@ async function cloudLoad(){
   _lastCloud=Date.now();
   try{
     var r=await fetch(API+'?op=progress');
-    if(!r.ok)return;
+    if(!r.ok){CLOUD_OK=false;return false;}
     var p=await r.json();
-    if(!p||!p.results||typeof p.results!=='object')return;
+    if(!p||!p.results||typeof p.results!=='object'){CLOUD_OK=false;return false;}
     var cur=ST.view==='card'?ST.cardKey:null,before=cur&&ST.results[cur];
     Object.keys(ST.results).forEach(function(k){
       // v2 から引き継いだ答えや未送信の答え（クラウドに無い・手元の方が新しい）を送信キューへ
@@ -704,7 +706,8 @@ async function cloudLoad(){
       // 開いているカードより新しい答えがクラウドにあった。古い下書きで上書きしないよう開き直す
       draftKey=null;render();toast('ほかの端末で保存された内容を表示しました','warn');
     }
-  }catch(e){}
+    return true;
+  }catch(e){CLOUD_OK=false;return false;}
   finally{CLOUD_READY=true;updateSync();}
 }
 
@@ -809,7 +812,11 @@ document.addEventListener('click',function(e){
       // 保存の押下は取り込み終わってから押し直す（古い下書きで新しい答えを上書きしない）
       e.stopPropagation();e.preventDefault();
       var dk=draftKey,d=draft;
-      cloudLoad().then(function(){ if(draftKey===dk&&draft===d&&document.contains(t))t.click(); else flush(); });
+      cloudLoad().then(function(ok){
+        // 最新を取り込めなかったときは押し直さない（ほかの端末の答えを古い下書きで上書きしない）
+        if(!ok){toast('電波が弱く最新を確認できませんでした。もう一度押すとこの端末に保存します','warn');return;}
+        if(draftKey===dk&&draft===d&&document.contains(t))t.click(); else flush();
+      });
     }
     else cloudLoad().then(flush);
   }
