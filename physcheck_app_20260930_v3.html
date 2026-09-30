@@ -623,6 +623,7 @@ function rowData(k){
 async function flush(){
   if(_flushing){_flushAgain=true;return;}
   if(!QUEUE.length||navigator.onLine===false){updateSync();return;}
+  if(!CLOUD_OK){updateSync();return;} // ほかの端末の進捗を取り込めるまでは送らない（取り込み成功後に cloudLoad().then(flush) で送る）
   _flushing=true;_lastFlush=Date.now();updateSync();
   try{
     var keys=QUEUE.slice(),stop=false;
@@ -698,7 +699,9 @@ async function cloudLoad(){
     // 手元で断られた行でも、クラウドに新しい答えがあればそちらを正とする
     FAILED=FAILED.filter(function(k){return ST.results[k]===old[k];});saveQueue();
     Object.keys(p.results).forEach(function(k){
-      ((p.results[k]&&p.results[k].images)||[]).forEach(function(n){ if(!IMG[n])IMG[n]={d:'',p:true}; });
+      // クラウドの行が勝ったら、同じ名前で手元に残る未送信の写真は古い行のものなので捨てる
+      var won=ST.results[k]===p.results[k];
+      ((p.results[k]&&p.results[k].images)||[]).forEach(function(n){ if(!IMG[n]||(won&&!IMG[n].p))IMG[n]={d:'',p:true}; });
     });
     persist(true);
     if(ST.view!=='card')render();
@@ -795,7 +798,7 @@ document.addEventListener('click',function(e){
     if(idx>0){ST.cardKey=ks[idx-1];draftKey=null;render();}
   }
   else if(act==='scan'){openScan();}
-  else if(act==='flushnow'){closeSheet();flush();}
+  else if(act==='flushnow'){closeSheet();if(CLOUD_OK)flush();else cloudLoad().then(flush);}
   else if(act==='openfailed'){if(FAILED.length&&ST.byKey[FAILED[0]]){ST.cardKey=FAILED[0];draftKey=null;ST.view='card';render();}}
   else if(act==='introok'){try{localStorage.setItem(LS_INTRO,'1');}catch(e){}var ov=$('#intro');if(ov)ov.remove();}
   else if(act==='reload'){location.reload();}
