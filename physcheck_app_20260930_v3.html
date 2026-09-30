@@ -456,7 +456,7 @@ function renderCard(keepScroll){
     (it['参考URL']?'<div class="mt" style="margin-top:6px"><a href="'+esc(it['参考URL'])+'" target="_blank" rel="noopener">参考ページを開く</a></div>':'')+'</div>');
   activeFields().forEach(function(tk){h.push(fldHTML(tk));});
   h.push('<div class="fld"><div class="lb">メモ<span class="opt">任意</span></div>'+
-    '<textarea data-k="note" placeholder="気づいたこと">'+esc(draft.note)+'</textarea></div>');
+    '<textarea data-k="note" maxlength="800" placeholder="気づいたこと">'+esc(draft.note)+'</textarea></div>');
   h.push('<div class="btns">'+
     '<button class="btn pri" data-act="save">保存して次へ</button>'+
     '<button class="btn ngb" data-act="absent">現物なし（0点で保存）</button>'+
@@ -527,10 +527,11 @@ function toJpeg(img,max,q){
 }
 function b64Bytes(dataUrl){var b=dataUrl.slice(dataUrl.indexOf(',')+1);return Math.floor(b.length*3/4);}
 async function addImages(files){
-  var it=ST.byKey[draftKey],i;
+  var k=draftKey,d=draft,it=ST.byKey[k],i;
   for(i=0;i<files.length;i++){
     try{
       var img=await loadImageFile(files[i]);
+      if(draftKey!==k||draft!==d){toast('別の行に移ったため写真を追加しませんでした','warn');return;}
       var data=toJpeg(img,1600,0.85);
       if(b64Bytes(data)>MAX_PHOTO)data=toJpeg(img,1280,0.75);
       if(b64Bytes(data)>MAX_PHOTO)data=toJpeg(img,1024,0.65);
@@ -581,7 +582,7 @@ var LS_F='physcheck_v3_failed';
 var FAILED=[];           // 窓口に断られた行 key（入力し直して保存するまで未完了扱い）
 var _flushing=false,_flushAgain=false,_lastFlush=0;
 var REV={};              // 行ごとの保存回数。送信中に保存し直されたら古い送信の成功でキューから外さない
-var CLOUD_READY=false;
+var CLOUD_READY=false,CLOUD_OK=false,_lastCloud=0; // OK=クラウドと突き合わせ済み
 function loadQueue(){
   try{QUEUE=JSON.parse(localStorage.getItem(LS_Q)||'[]')||[];}catch(e){QUEUE=[];}
   try{FAILED=JSON.parse(localStorage.getItem(LS_F)||'[]')||[];}catch(e){FAILED=[];}
@@ -603,6 +604,7 @@ function updateSync(){
   if(FAILED.length){el.className='ng';el.setAttribute('data-act','openfailed');
     el.textContent='保存できませんでした '+FAILED.length+' 件（押して入力し直す）';return;}
   el.removeAttribute('data-act');
+  if(!QUEUE.length&&!CLOUD_OK){el.className='wait';el.textContent='確認中…（電波が戻ったら確認）';return;}
   if(!QUEUE.length){el.className='ok';el.textContent='保存済み ✓';return;}
   el.className='wait';
   el.textContent=(_flushing?'送信中… ':'')+'未送信 '+QUEUE.length+' 件（電波が戻ったら自動送信）';
@@ -615,10 +617,7 @@ async function post(body){
   }catch(e){return 0;}
 }
 function rowData(k){
-  var o=Object.assign({},ST.results[k]);
-  var n=JSON.stringify(o).length;
-  if(n>2000&&o.note){o.note=String(o.note).slice(0,Math.max(0,String(o.note).length-(n-2000)-20));}
-  return o;
+  return Object.assign({},ST.results[k]);
 }
 async function flush(){
   if(_flushing){_flushAgain=true;return;}
@@ -677,6 +676,7 @@ function mergeResults(local,cloud){
   return out;
 }
 async function cloudLoad(){
+  _lastCloud=Date.now();
   try{
     var r=await fetch(API+'?op=progress');
     if(!r.ok)return;
@@ -688,7 +688,7 @@ async function cloudLoad(){
       var c=p.results[k],lt=Date.parse(ST.results[k].checkedAt||'')||0,ct=c?(Date.parse(c.checkedAt||'')||0):-1;
       if(ST.results[k].checkedAt&&lt>ct&&ST.byKey[k]&&FAILED.indexOf(k)<0&&QUEUE.indexOf(k)<0)QUEUE.push(k);
     });
-    saveQueue();
+    saveQueue();CLOUD_OK=true;
     ST.results=mergeResults(ST.results,p.results);
     Object.keys(p.results).forEach(function(k){
       ((p.results[k]&&p.results[k].images)||[]).forEach(function(n){ if(!IMG[n])IMG[n]={d:'',p:true}; });
@@ -796,8 +796,11 @@ document.addEventListener('click',function(e){
   else if(act==='closesheet'){closeSheet();}
 });
 // 送れなかった分は、次の操作時（間引き 20 秒）とオンライン復帰時に再送する
-document.addEventListener('click',function(){if(QUEUE.length&&Date.now()-_lastFlush>20000)flush();},true);
-window.addEventListener('online',function(){flush();});
+document.addEventListener('click',function(){
+  if(!CLOUD_OK&&Date.now()-_lastCloud>20000)cloudLoad().then(flush);
+  else if(QUEUE.length&&Date.now()-_lastFlush>20000)flush();
+},true);
+window.addEventListener('online',function(){if(!CLOUD_OK)cloudLoad().then(flush);else flush();});
 document.addEventListener('toggle',function(e){if(e.target.classList&&e.target.classList.contains('flt'))ST.fltOpen=e.target.open;},true);
 document.addEventListener('change',function(e){
   var t=e.target;
