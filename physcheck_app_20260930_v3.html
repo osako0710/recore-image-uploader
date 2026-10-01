@@ -152,7 +152,7 @@ details.flt[open]{padding-bottom:12px}
 <script>
 "use strict";
 var CSV_URL='phys_items_20260924_v2.csv';
-var CTX_URL='phys_box_context_20261001_v1.json'; // 箱の中身・同じ名前の商品（読めなくても今まで通り動く）
+var CTX_URL='phys_box_context_20261001_v2.json'; // 箱の中身・同じ名前の商品（読めなくても今まで通り動く）
 var LS_KEY='physcheck_v2';
 var LS_IMG='physcheck_v2_images';
 var REPO='osako0710/mercari-images';
@@ -1097,7 +1097,15 @@ document.addEventListener('click',function(e){
     if(!bh||!draft)return;
     if(!bhNew().length||!bh.reason){bh.err=true;renderBoxHelp();toast('写真と「分からないこと」を入れてください','ng');
       var be=document.querySelector('.fld.err');if(be)be.scrollIntoView({block:'center'});return;}
-    if(commitBoxHelp())toast('担当者に回しました。次の箱へ進んでください','ok');
+    if(bh.busy)return;
+    // 箱の全行を保留にする前に、保存先から取り直す（ほかの端末が先に確認した行を保留で上書きしない）
+    var me=bh;me.busy=true;toast('ほかの端末の状況を確かめています','warn');
+    cloudLoad().then(function(ok){
+      me.busy=false;
+      if(bh!==me||ST.view!=='boxhelp')return;
+      if(!ok){toast('通信が不安定で、箱の最新の状態を確かめられませんでした。電波のよい所でもう一度押してください（写真は残っています）','warn');return;}
+      if(commitBoxHelp())toast('担当者に回しました。次の箱へ進んでください','ok');
+    });
   }
   else if(act==='save'){
     if(!validate()){renderCard(true);toast('必須項目が未入力です','ng');
@@ -1129,7 +1137,8 @@ document.addEventListener('click',function(e){
   // 読込に失敗していたら 20 秒おき、ほかの端末の進捗は 60 秒おきに取り込む
   if(_cloudP||(!CLOUD_OK&&Date.now()-_lastCloud>20000)||(CLOUD_OK&&!_flushing&&Date.now()-_lastCloud>60000)){
     var t=e.target.closest&&e.target.closest('[data-act]'),act=t&&t.getAttribute('data-act');
-    if(act==='save'||act==='absent'||act==='later'||act==='boxhelpok'||(act==='pres'&&t.getAttribute('data-v')==='no')){
+    // 「担当者に回す」は押すたびに自分で取り直すので、ここでは待たせない
+    if(act==='save'||act==='absent'||act==='later'||(act==='pres'&&t.getAttribute('data-v')==='no')){
       // 保存の押下は取り込み終わってから押し直す（古い下書きで新しい答えを上書きしない）
       e.stopPropagation();e.preventDefault();
       var dk=draftKey,d=draft;
