@@ -525,6 +525,13 @@ var BOX_TAG='箱ごと確認：';
 var BOX_REASONS=['サイズ・柄がバラバラ','一覧にない物が入っている','どれがどの商品か分からない','その他'];
 function boxTodo(b){return b.rows.filter(function(x){return !isDone(x._key);});}
 function bhNew(){return draft.images.filter(function(n){return bh.old.indexOf(n)<0;});} // この画面で撮った写真
+// 箱の写真を付ける行の写真を決める。ほかの端末が先に付けた写真は残し、この画面で外した写真を除いて、撮った写真を足す。上限を超えるときは null
+function bhImages(fresh,old,cur,max){
+  var out=(fresh||[]).filter(function(n){return old.indexOf(n)<0||cur.indexOf(n)>=0;});
+  cur.forEach(function(n){if(old.indexOf(n)<0&&out.indexOf(n)<0)out.push(n);});
+  return out.length>max?null:out;
+}
+function bhMine(k,n){return ST.view==='boxhelp'&&!!bh&&!!draft&&k===draftKey&&bh.old.indexOf(n)<0&&draft.images.indexOf(n)>=0;} // 箱ごと確認の画面で撮った、まだ付けていない写真
 function openBoxHelp(keep){
   var b=ST.boxMap[ST.boxId],rs=b?boxTodo(b):[];
   if(!rs.length){toast('この箱に未確認の商品はありません','warn');return;}
@@ -551,8 +558,10 @@ function renderBoxHelp(){
 }
 function commitBoxHelp(){
   var b=ST.boxMap[bh.box],tag=BOX_TAG+bh.reason,now=nowISO(),k0=draftKey,todo=boxTodo(b);
-  if(!todo.some(function(x){return x._key===k0;})){
+  var imgs=bhImages((ST.results[k0]||{}).images,bh.old,draft.images,PHOTO_MAX);
+  if(!todo.some(function(x){return x._key===k0;})||!imgs){
     // 写真を付ける行が、ほかの端末で確認済みになった。写真を失わないよう、残りの行で撮り直してもらう
+    // ほかの端末が先に付けた写真と合わせて上限を超えるときも、まだ足せる行で撮り直してもらう
     var why=bh.reason;draftKey=null;bh=null;ST.view='box';
     if(todo.length){openBoxHelp(why);toast('ほかの端末でこの箱が更新されました。もう一度、写真を撮ってください','warn');}
     else{render();toast('この箱は、ほかの端末で確認が終わっていました','warn');}
@@ -560,7 +569,7 @@ function commitBoxHelp(){
   }
   todo.forEach(function(x){
     var k=x._key,o=Object.assign({},ST.results[k]||{});
-    if(k===k0)o.images=draft.images.slice(); // 箱の写真は、この画面を開いたときの先頭の行に付ける（数えていない数量などは写さない）
+    if(k===k0)o.images=imgs; // 箱の写真は、この画面を開いたときの先頭の行に付ける（数えていない数量などは写さない）。ほかの端末が先に付けた写真は残す
     o.issues=(o.issues||[]).filter(function(v){return v.indexOf(BOX_TAG)!==0;}).concat([tag]);
     o.skipped=true;o.checkedAt=now;
     ST.results[k]=o;enqueue(k);
@@ -1224,7 +1233,14 @@ async function _cloudLoad(){
     Object.keys(p.results).forEach(function(k){
       // クラウドの行が勝ったら、同じ名前で手元に残る未送信の写真は古い行のものなので捨てる
       var won=ST.results[k]===p.results[k];
-      if(won&&old[k])(old[k].images||[]).forEach(function(n){ if(IMG[n]&&!IMG[n].p&&(p.results[k].images||[]).indexOf(n)<0)delete IMG[n]; });
+      // 箱ごと確認の画面で撮った写真は、ほかの端末が同じ行を先に保存していても捨てない。名前が重なったら空いている番号へ付け替える
+      if(won&&k===draftKey&&bh&&draft)draft.images.slice().forEach(function(n){
+        if(!bhMine(k,n)||!IMG[n]||IMG[n].p||(p.results[k].images||[]).indexOf(n)<0)return;
+        var nn=freshPhotoName(k);if(!nn)return;
+        IMG[nn]=IMG[n];delete IMG[n];draft.images=draft.images.map(function(x){return x===n?nn:x;});
+        if(draft.slots&&draft.slots[n]){draft.slots[nn]=draft.slots[n];delete draft.slots[n];}
+      });
+      if(won&&old[k])(old[k].images||[]).forEach(function(n){ if(IMG[n]&&!IMG[n].p&&(p.results[k].images||[]).indexOf(n)<0&&!bhMine(k,n))delete IMG[n]; });
       ((p.results[k]&&p.results[k].images)||[]).forEach(function(n){ if(!IMG[n]||(won&&!IMG[n].p))IMG[n]={d:'',p:true}; });
     });
     persist(true);
@@ -1439,7 +1455,7 @@ document.addEventListener('click',function(e){
       // 待っている間に写真や理由を外していたら、保留にしない
       if(!draft||!bhNew().length||!bh.reason){bh.err=true;renderBoxHelp();toast('写真と「分からないこと」を入れてください','ng');return;}
       if(commitBoxHelp())toast('担当者に回しました。次の箱へ進んでください','ok');
-    },function(){me.busy=false;updateSync();});
+    },function(){me.busy=false;updateSync();toast('箱の最新の状態を確かめられませんでした。もう一度押してください（写真は残っています）','warn');});
   }
   else if(act==='save'){
     if(!validate()){renderCard(true);toast('必須項目が未入力です','ng');
