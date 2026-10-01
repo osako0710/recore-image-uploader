@@ -6,6 +6,7 @@
 <meta name="format-detection" content="telephone=no">
 <title>現物確認</title>
 <style>
+.chip.sm{min-height:44px;padding:6px 12px;font-size:14px}
 :root{
   --bg:#f4f5f7; --card:#fff; --line:#dfe3e8; --tx:#16202b; --sub:#63707e;
   --pri:#1565d8; --pri-d:#0f4ea8; --ok:#0f9d58; --ng:#d93025; --warn:#b06000;
@@ -163,6 +164,9 @@ var IMG={};            // {filename:{d:dataUrl,p:pushed}}
 var draft=null;        // 編集中カードの入力
 var draftKey=null;
 var errFields={};
+var issKey=null;        // 要確認の一覧から開いたカード（保存・戻るで一覧へ戻す）
+var issOpen=false;      // 「困ったことがある」を開いているか
+var imgPending=0;       // 読み込み中の写真の枚数
 
 /* ---------- utils ---------- */
 function $(s){return document.querySelector(s);}
@@ -242,6 +246,7 @@ function persist(now){
 /* ---------- 完了判定 ---------- */
 function res(k){return ST.results[k];}
 function isDone(k){var r=ST.results[k];if(FAILED&&FAILED.indexOf(k)>=0)return false;return !!r&&(r.absent===true||(!!r.checkedAt&&r.skipped!==true));}
+function hasIssue(k){var r=ST.results[k];return !!r&&!!r.issues&&r.issues.length>0;}
 function isSkipped(k){var r=ST.results[k];return !!r&&r.skipped===true;}
 
 /* ---------- index ---------- */
@@ -290,6 +295,7 @@ function boxRows(b){return b.rows.filter(matchFilter);}
 function render(){
   if(ST.view==='home')renderHome();
   else if(ST.view==='box')renderBox();
+  else if(ST.view==='issues')renderIssues();
   else renderCard();
 }
 function setHead(title,back){
@@ -325,9 +331,10 @@ function renderHome(){
 function updateHome(){
   var s=stats();
   var pct=s.total?Math.round((s.total-s.remain)/s.total*100):0;
+  var nIss=ST.items.filter(function(it){return hasIssue(it._key);}).length;
   $('#prog').innerHTML='<div class="t">残り <b>'+s.remain+'</b> / 全 '+s.total+'</div>'+
     '<div class="bar"><i style="width:'+pct+'%"></i></div>'+
-    '';
+    (nIss?'<button class="btn sm" style="margin-top:10px" data-act="issview">要確認 '+nIss+' 件を見る</button>':'');
   var list=[],nBox=0,nRemainBox=0;
   ST.boxes.forEach(function(b){
     var st=boxStat(b); if(st.total===0)return;
@@ -346,10 +353,23 @@ function updateHome(){
 function rowHTML(it){
   var k=it._key,d=isDone(k),sk=isSkipped(k),r=ST.results[k];
   var badge=d?'<span class="tag dn">'+(r&&r.absent?'現物なし':'確認済み')+'</span>':(sk?'<span class="tag later">保留</span>':'');
+  if(r&&r.issues&&r.issues.length)badge+='<span class="tag later">要確認</span>';
   return '<button class="row'+(d?' done':'')+'" data-act="card" data-v="'+esc(k)+'">'+
     '<div class="l"><div class="mt">'+badge+'行'+esc(it['行'])+'</div>'+
     '<div class="nm">'+esc(it['商品名'])+'</div></div>'+
     '<div class="r">›</div></button>';
+}
+function renderIssues(){
+  setHead('要確認',true);
+  var list=ST.items.filter(function(it){return hasIssue(it._key);});
+  var h=['<div class="sec">「困ったことがある」が付いた商品 '+list.length+' 件</div>'];
+  h.push(list.length?list.map(function(it){
+    var r=ST.results[it._key];
+    return '<button class="row" data-act="isscard" data-v="'+esc(it._key)+'">'+
+      '<div class="l"><div class="mt">'+esc(it['箱'])+'</div>'+
+      '<div class="nm">'+esc(it['商品名'])+'</div>'+
+      '<div class="mt">'+esc(r.issues.join('・'))+'</div></div><div class="r">›</div></button>';}).join(''):'<div class="empty">要確認の商品はありません</div>');
+  $('#app').innerHTML='<div style="display:flex;flex-direction:column;gap:8px">'+h.join('')+'</div>';
 }
 function renderBox(){
   var b=ST.boxMap[ST.boxId]; if(!b){ST.view='home';return render();}
@@ -364,13 +384,17 @@ function renderBox(){
   h.push('<div class="sec">未完了 '+st.remain+' 件'+(ST.showDone?'（確認済みも表示中）':'')+'</div>');
   var list=rows.filter(function(it){return ST.showDone||!isDone(it._key);}).map(rowHTML);
   h.push(list.length?list.join(''):'<div class="empty">表示する商品はありません</div>');
+  if(!ST.showDone){
+    var flagged=rows.filter(function(it){return isDone(it._key)&&hasIssue(it._key);});
+    if(flagged.length)h.push('<div class="sec">要確認 '+flagged.length+' 件（保存済み）</div>'+flagged.map(rowHTML).join(''));
+  }
   $('#app').innerHTML='<div style="display:flex;flex-direction:column;gap:8px">'+h.join('')+'</div>';
 }
 
 /* ---------- カード ---------- */
 function startDraft(k){
   var r=ST.results[k]||{},it=ST.byKey[k];
-  draftKey=k;errFields={};
+  draftKey=k;errFields={};issOpen=false;
   draft={
     qty:(r.qty===0||r.qty)?r.qty:it._qty0,
     absent:r.absent===true?true:(r.absent===false?false:undefined),
@@ -378,7 +402,7 @@ function startDraft(k){
     refUrl:r.refUrl||'',color:r.color||'',size:r.size||'',edition:r.edition||'',
     setContents:r.setContents||'',expiry:r.expiry||'',storage:r.storage||'',
     condition:r.condition||'',hasLabel:r.hasLabel||'',
-    images:(r.images||[]).slice(),note:r.note||''
+    images:(r.images||[]).slice(),issues:(r.issues||[]).slice(),note:r.note||''
   };
 }
 function saveDraft(){ // 入力のたびの自動保存（完了にはしない）
@@ -402,6 +426,13 @@ function activeFields(){
   return t;
 }
 function imgSrc(n){return (IMG[n]&&IMG[n].d)?IMG[n].d:CDN_BASE+n;}
+var ISSUES=['確認のしかたが分からない','中古・使用感がある','商品名と中身が違う','破損・汚れがある','ラベルや番号が違う','その他'];
+function photoHTML(label){
+  var th=draft.images.map(function(nm){
+    return '<div class="thumb"><img src="'+esc(imgSrc(nm))+'" alt=""><button data-act="imgdel" data-v="'+esc(nm)+'">×</button></div>';}).join('');
+  return '<label class="filebtn">'+label+'<input type="file" accept="image/*" capture="environment" multiple data-act="imgadd"></label>'+
+         '<div class="thumbs">'+th+'</div>'+(draft.images.length?'<div class="hint">'+draft.images.length+' 枚</div>':'');
+}
 function fldHTML(tk){
   var n=tk.n,req=tk.req,lb=FIELD_LABEL[n]||n,it=ST.byKey[draftKey];
   var head='<div class="lb">'+esc(lb)+(req?'<span class="req">必須</span>':'<span class="opt">任意</span>')+'</div>';
@@ -417,10 +448,7 @@ function fldHTML(tk){
          '<input type="number" inputmode="numeric" pattern="[0-9]*" data-k="qty" value="'+esc(draft.qty)+'">'+
          '<button class="qbtn" data-act="q+">＋</button></div><div class="hint">登録数 '+esc(it['元数量'])+' 点</div>';
   }else if(n==='photo'){
-    var th=draft.images.map(function(nm){
-      return '<div class="thumb"><img src="'+esc(imgSrc(nm))+'" alt=""><button data-act="imgdel" data-v="'+esc(nm)+'">×</button></div>';}).join('');
-    body='<label class="filebtn">＋ 写真を撮る / 選ぶ<input type="file" accept="image/*" capture="environment" multiple data-act="imgadd"></label>'+
-         '<div class="thumbs">'+th+'</div>'+(draft.images.length?'<div class="hint">'+draft.images.length+' 枚</div>':'');
+    body=photoHTML('＋ 写真を撮る / 選ぶ');
   }else if(n==='candidate'){
     var cu=it['候補URL'],ct=it['候補タイトル'];
     body='<div class="cand">'+(ct?'<div><b>'+esc(ct)+'</b></div>':'')+
@@ -468,7 +496,8 @@ function renderCard(keepScroll){
   if(!it){ST.view='home';return render();}
   if(draftKey!==k)startDraft(k);
   var sc=keepScroll?window.scrollY:0;
-  var b=ST.boxMap[it['箱']],rows=boxRows(b),idx=rows.map(function(x){return x._key;}).indexOf(k);
+  var fromIss=issKey===k;
+  var b=ST.boxMap[it['箱']],rows=fromIss?[it]:boxRows(b),idx=rows.map(function(x){return x._key;}).indexOf(k);
   setHead(it['箱'],true);
   var h=[];
   h.push('<div class="q"><div class="qq">'+esc(it['質問'])+'</div>'+(it['見るポイント']?'<div class="pt">確認する点: '+esc(it['見るポイント'])+'</div>':'')+'</div>');
@@ -476,15 +505,26 @@ function renderCard(keepScroll){
     ((isDone(k)||isSkipped(k))?'<div class="mt" style="margin-top:6px">'+(isDone(k)?'<span class="tag dn">確認済み（修正する場合は入力し直して保存）</span>':'')+(isSkipped(k)?'<span class="tag later">保留</span>':'')+'</div>':'')+
     (it['参考URL']?'<div class="mt" style="margin-top:6px"><a href="'+esc(it['参考URL'])+'" target="_blank" rel="noopener">参考ページを開く</a></div>':'')+'</div>');
   activeFields().forEach(function(tk){h.push(fldHTML(tk));});
-  h.push('<div class="fld"><div class="lb">メモ<span class="opt">任意</span></div>'+
-    '<textarea data-k="note" maxlength="800" placeholder="気づいたこと">'+esc(draft.note)+'</textarea></div>');
+  if(issOpen||draft.issues.length){
+    h.push('<div class="fld"><div class="lb">困ったこと・気になること<span class="opt">任意</span></div>'+
+      '<div class="chips">'+ISSUES.map(function(v){
+        return '<button class="chip sm'+(draft.issues.indexOf(v)>=0?' on':'')+'" data-act="issue" data-v="'+esc(v)+'">'+esc(v)+'</button>';}).join('')+'</div>'+
+      '<div class="hint">迷ったら選んでください。担当者があとで確認します</div></div>');
+  }else{
+    h.push('<button class="chip sm" style="align-self:flex-start;margin:4px 0" data-act="issopen">困ったことがある ▾</button>');
+  }
+  // 文字を打たなくても、写真を撮るだけで伝えられる（色やサイズは写真から後で読み取る）
+  var hasPhoto=activeFields().some(function(tk){return tk.n==='photo';});
+  h.push('<div class="fld'+(errFields.note?' err':'')+'" data-fld="note"><div class="lb">メモ<span class="opt">任意</span></div>'+
+    (hasPhoto?'':photoHTML('📷 写真でメモする（タグ・色・気になる所）'))+
+    '<textarea data-k="note" maxlength="400" placeholder="文字で書く場合はこちら"'+(hasPhoto?'':' style="margin-top:8px"')+'>'+esc(draft.note)+'</textarea><div class="emsg">「その他」の内容を、写真か文字で入れてください</div></div>');
   h.push('<div class="btns">'+
     '<button class="btn pri" data-act="save">保存して次へ</button>'+
     '<button class="btn ngb" data-act="absent">現物なしで保存</button>'+
     '<div class="two"><button class="btn sm" data-act="prev"'+(idx<=0?' disabled':'')+'>← 前へ</button>'+
     '<button class="btn sm" data-act="later">保留にする</button></div>'+
-    '<button class="btn sm" data-act="tobox">箱の一覧へ戻る</button></div>');
-  h.push('<div class="hint" style="text-align:center;margin-top:10px">この箱 '+(idx+1)+' / '+rows.length+' 件目</div>');
+    (fromIss?'<button class="btn sm" data-act="issview">要確認の一覧へ戻る</button>':'<button class="btn sm" data-act="tobox">箱の一覧へ戻る</button>')+'</div>');
+  if(!fromIss)h.push('<div class="hint" style="text-align:center;margin-top:10px">この箱 '+(idx+1)+' / '+rows.length+' 件目</div>');
   $('#app').innerHTML=h.join('');
   if(keepScroll)window.scrollTo(0,sc); else window.scrollTo(0,0);
 }
@@ -508,6 +548,7 @@ function validate(){
     if(v===''||v==null){errFields[tk.n]=1;ok=false;}
     if(tk.n==='qty'&&draft.absent!==true&&num(draft.qty,-1)<0){errFields.qty=1;ok=false;}
   });
+  if(draft.issues.indexOf('その他')>=0&&!String(draft.note||'').trim()&&!draft.images.length){errFields.note=1;ok=false;}
   return ok;
 }
 function commit(mode){ // mode: save | absent | later
@@ -519,6 +560,7 @@ function commit(mode){ // mode: save | absent | later
   enqueue(k);flush();
 }
 function gotoNext(){
+  if(issKey&&issKey===draftKey){draftKey=null;ST.view='issues';render();return;}
   var it=ST.byKey[draftKey],b=ST.boxMap[it['箱']],rows=boxRows(b);
   var keys=rows.map(function(x){return x._key;}),i=keys.indexOf(draftKey),j;
   for(j=1;j<=keys.length;j++){
@@ -549,10 +591,11 @@ function toJpeg(img,max,q){
 function b64Bytes(dataUrl){var b=dataUrl.slice(dataUrl.indexOf(',')+1);return Math.floor(b.length*3/4);}
 async function addImages(files){
   var k=draftKey,d=draft,it=ST.byKey[k],i;
+  imgPending+=files.length;
   for(i=0;i<files.length;i++){
     try{
       var img=await loadImageFile(files[i]);
-      if(draftKey!==k||draft!==d){toast('別の商品に移動したため、写真は追加されませんでした','warn');return;}
+      if(draftKey!==k||draft!==d){imgPending=Math.max(0,imgPending-(files.length-i));toast('別の商品に移動したため、写真は追加されませんでした','warn');return;}
       var data=toJpeg(img,1600,0.85);
       if(b64Bytes(data)>MAX_PHOTO)data=toJpeg(img,1280,0.75);
       if(b64Bytes(data)>MAX_PHOTO)data=toJpeg(img,1024,0.65);
@@ -561,13 +604,14 @@ async function addImages(files){
       IMG[name]={d:data,p:false};
       draft.images.push(name);
     }catch(e){toast('画像の読み込みに失敗しました','ng');}
+    imgPending=Math.max(0,imgPending-1);
   }
   saveDraft();renderCard(true);
 }
 
 /* ---------- CSV 書き出し ---------- */
 function buildExportCSV(){
-  var head=['月','箱','袋','行','PKGI','商品名','task名','元数量','現物数量','現物なし','候補で合っている','参考URL(現場入力)','色','サイズ','版・SKU','セット内容','賞味期限','保管状態','状態','在庫ラベル','画像ファイル名','メモ','あとで','確認日時'];
+  var head=['月','箱','袋','行','PKGI','商品名','task名','元数量','現物数量','現物なし','候補で合っている','参考URL(現場入力)','色','サイズ','版・SKU','セット内容','賞味期限','保管状態','状態','在庫ラベル','画像ファイル名','メモ','あとで','確認日時','気になること'];
   var rows=[head];
   ST.items.forEach(function(it){
     var r=ST.results[it._key]||{};
@@ -579,7 +623,7 @@ function buildExportCSV(){
       r.candidateOk===true?'はい':(r.candidateOk===false?'いいえ':''),
       r.refUrl||'',r.color||'',r.size||'',r.edition||'',r.setContents||'',r.expiry||'',
       r.storage||'',r.condition||'',r.hasLabel||'',(r.images||[]).join(';'),r.note||'',
-      r.skipped===true?'はい':'', r.checkedAt||''
+      r.skipped===true?'はい':'', r.checkedAt||'',(r.issues||[]).join(';')
     ]);
   });
   var csv=rows.map(function(r){return r.map(function(c){return '"'+String(c==null?'':c).replace(/"/g,'""')+'"';}).join(',');}).join('\r\n')+'\r\n';
@@ -840,11 +884,14 @@ document.addEventListener('click',function(e){
   var act=t.getAttribute('data-act'),v=t.getAttribute('data-v');
   // 最初のクラウド読込が終わる前に保存すると、古い下書きで新しい答えを上書きしてしまう
   if(!CLOUD_READY&&((act==='pres'&&v==='no')||act==='save'||act==='absent'||act==='later')){toast('読み込み中です。少し待ってから保存してください','warn');return;}
+  if(imgPending>0&&((act==='pres'&&v==='no')||act==='save'||act==='absent'||act==='later')){toast('写真を読み込み中です。少し待ってから保存してください','warn');return;}
   if(act==='fm'){ST.filters.month=v;renderHome();}
   else if(act==='ft'){ST.filters.task=v;renderHome();}
+  else if(act==='issview'){ST.view='issues';draftKey=null;render();}
   else if(act==='tgdone'){ST.showDone=!ST.showDone;render();}
   else if(act==='box'){ST.boxId=v;ST.view='box';render();}
-  else if(act==='card'){ST.cardKey=v;draftKey=null;ST.view='card';render();}
+  else if(act==='card'){issKey=null;ST.cardKey=v;draftKey=null;ST.view='card';render();}
+  else if(act==='isscard'){issKey=v;ST.cardKey=v;draftKey=null;ST.view='card';render();}
   else if(act==='start'){
     var b=ST.boxMap[ST.boxId],rs=boxRows(b).filter(function(x){return !isDone(x._key);});
     if(!rs.length){toast('この箱に未確認の商品はありません','warn');return;}
@@ -879,6 +926,10 @@ document.addEventListener('click',function(e){
   else if(act==='chip'){
     var k=t.getAttribute('data-k');
     draft[k]=(draft[k]===v)?'':v;saveDraft();renderCard(true);
+  }
+  else if(act==='issopen'){issOpen=true;renderCard(true);}
+  else if(act==='issue'){
+    var ii=draft.issues.indexOf(v);if(ii>=0)draft.issues.splice(ii,1);else draft.issues.push(v);saveDraft();renderCard(true);
   }
   else if(act==='imgdel'){
     var i=draft.images.indexOf(v);if(i>=0)draft.images.splice(i,1);saveDraft();renderCard(true);
@@ -958,8 +1009,10 @@ $('#gear').addEventListener('click',openSheet);
 $('#hscan').addEventListener('click',openScan);
 $('#sheet').addEventListener('click',function(e){if(e.target.id==='sheet')closeSheet();});
 $('#back').addEventListener('click',function(){
-  if(ST.view==='card'){ST.view='box';ST.boxId=ST.byKey[ST.cardKey]['箱'];draftKey=null;}
+  if(ST.view==='card'&&issKey===ST.cardKey){ST.view='issues';draftKey=null;}
+  else if(ST.view==='card'){ST.view='box';ST.boxId=ST.byKey[ST.cardKey]['箱'];draftKey=null;}
   else if(ST.view==='box'){ST.view='home';ST.boxId=null;}
+  else if(ST.view==='issues'){ST.view='home';}
   render();
 });
 
