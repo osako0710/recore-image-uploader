@@ -422,8 +422,19 @@ function fldHTML(tk){
       (draft.candidateOk===false?'<div class="hint">違う場合は、参考URLと写真を入力してください</div>':'');
   }else if(n==='url'){
     body='<input type="url" inputmode="url" data-k="refUrl" placeholder="https://" value="'+esc(draft.refUrl)+'">';
-  }else if(n==='color'||n==='size'){
-    var arr=n==='color'?COLORS:SIZES,key=n;
+  }else if(n==='color'){
+    var cp=colorParts(draft.color),names=cp.map(function(p){return p.c;});
+    body='<div class="chips">'+COLORS.map(function(v){
+      return '<button class="chip'+(names.indexOf(v)>=0?' on':'')+'" data-act="cchip" data-v="'+esc(v)+'">'+esc(v)+'</button>';}).join('')+'</div>'+
+      (cp.length>=2?'<div class="hint">色ごとの数を入れてください（合計が現物数量になります）</div>'+cp.map(function(p){
+        return '<div class="qty" style="margin-top:6px"><span style="min-width:72px;font-weight:700">'+esc(p.c)+'</span>'+
+          '<button class="qbtn" data-act="cq" data-c="'+esc(p.c)+'" data-v="-1">−</button>'+
+          '<input type="number" inputmode="numeric" pattern="[0-9]*" data-cq="'+esc(p.c)+'" value="'+esc(p.n)+'">'+
+          '<button class="qbtn" data-act="cq" data-c="'+esc(p.c)+'" data-v="1">＋</button></div>';}).join('')
+      :'<div class="hint">色違いが入っているときは、色を 2 つ以上選んでください</div>'+
+       '<input type="text" data-k="color" style="margin-top:8px" placeholder="自由入力" value="'+esc(draft.color)+'">');
+  }else if(n==='size'){
+    var arr=SIZES,key=n;
     body='<div class="chips">'+arr.map(function(v){
       return '<button class="chip'+(draft[key]===v?' on':'')+'" data-act="chip" data-k="'+key+'" data-v="'+esc(v)+'">'+esc(v)+'</button>';}).join('')+'</div>'+
       '<input type="text" data-k="'+key+'" style="margin-top:8px" placeholder="自由入力" value="'+esc(draft[key])+'">';
@@ -740,10 +751,36 @@ function openSheet(){
 }
 function closeSheet(){stopScan();$('#sheet').classList.remove('open');}
 var _scan=null;
-function normCode(s){ // 小文字・空白・ハイフン抜けを CSV の表記（BU-/PKGI-）に揃える
+function colorParts(s){ // 「青×1・黄×2」→ [{c:'青',n:1},{c:'黄',n:2}]。1 色なら [{c:'青',n:null}]
+  if(!s)return [];
+  return String(s).split('・').map(function(x){
+    x=x.trim();var m=x.match(/^(.+?)×(\d+)$/);return m?{c:m[1],n:+m[2]}:{c:x,n:null};
+  }).filter(function(p){return p.c;});
+}
+function colorJoin(ps){
+  if(ps.length<2)return ps.length?ps[0].c:'';
+  return ps.map(function(p){return p.c+'×'+(p.n==null?0:p.n);}).join('・');
+}
+function setColorParts(ps){ // 2 色以上なら合計を現物数量に入れる
+  draft.color=colorJoin(ps);
+  if(ps.length>=2)draft.qty=ps.reduce(function(a,p){return a+(p.n||0);},0);
+}
+function normCode(s){ // 小文字・空白・ハイフン抜け・桁不足を CSV の表記（BU-/PKG-/PKGI- + 8桁）に揃える
   s=String(s).toUpperCase().replace(/\s+/g,'');
-  var m=s.match(/^(BU|PKGI)-?(\d+)$/);
-  return m?m[1]+'-'+m[2]:s;
+  var m=s.match(/^(BU|PKGI|PKG)-?(\d+)$/);
+  if(!m)return s;
+  var d=m[2];while(d.length<8)d='0'+d;
+  return m[1]+'-'+d;
+}
+function openOutside(code){ // 対象外の番号を読んだときの案内
+  var isItem=/^PKGI-/.test(code);
+  $('#sheetin').innerHTML='<h3>'+(isItem?'この商品':'この箱')+'は今回の確認対象に入っていません</h3>'+
+    '<p style="margin:8px 0">読み取った番号: <b>'+esc(code)+'</b></p>'+
+    '<p style="margin:8px 0">開けずに元の場所に戻し、次の箱を読み取ってください。番号が違って見えるときは、手で入力して検索してください。</p>'+
+    '<div class="btns"><button class="btn pri" data-act="scan">次の箱を読み取る</button>'+
+    '<button class="btn" data-act="typecode">番号を入力して検索</button>'+
+    '<button class="btn" data-act="closesheet">閉じる</button></div>';
+  $('#sheet').classList.add('open');
 }
 function openSearch(msg){
   ST.view='home';ST.fltOpen=true;render();toast(msg,'warn');
@@ -763,7 +800,8 @@ function openScan(){
     var one=ST.items.filter(function(it){return it['PKGI']===txt;});
     if(one.length===1){draftKey=null;ST.filters.q='';ST.cardKey=one[0]._key;ST.view='card';render();
       if(isDone(one[0]._key))toast('この商品は確認済みです（修正できます）','warn');return;}
-    ST.view='home';ST.filters.q=txt;render();toast('読み取り: '+txt+'（'+(one.length?'該当 '+one.length+' 件':'該当なし')+'）');
+    if(!one.length){ST.view='home';ST.filters.q='';render();openOutside(txt);return;}
+    ST.view='home';ST.filters.q=txt;render();toast('読み取り: '+txt+'（該当 '+one.length+' 件）');
   },function(){}).catch(function(){closeSheet();openSearch('カメラを起動できません。箱番号を入力して検索してください');});
 }
 
@@ -793,6 +831,22 @@ document.addEventListener('click',function(e){
     draft.absent=false;if(num(draft.qty,0)<1)draft.qty=ST.byKey[draftKey]._qty0;saveDraft();renderCard(true);
   }
   else if(act==='cand'){draft.candidateOk=(v==='1');saveDraft();renderCard(true);}
+  else if(act==='cchip'){
+    var ps=colorParts(draft.color),ix=-1;
+    ps.forEach(function(p,i){if(p.c===v)ix=i;});
+    if(ix>=0)ps.splice(ix,1);
+    else{
+      if(ps.length===1&&ps[0].n==null)ps[0].n=Math.max(1,num(draft.qty,1)-1);
+      ps.push({c:v,n:ps.length?1:null});
+    }
+    if(ps.length===1)ps[0].n=null;
+    setColorParts(ps);saveDraft();renderCard(true);
+  }
+  else if(act==='cq'){
+    var c=t.getAttribute('data-c'),ps2=colorParts(draft.color);
+    ps2.forEach(function(p){if(p.c===c)p.n=Math.max(0,(p.n||0)+num(v,0));});
+    setColorParts(ps2);saveDraft();renderCard(true);
+  }
   else if(act==='chip'){
     var k=t.getAttribute('data-k');
     draft[k]=(draft[k]===v)?'':v;saveDraft();renderCard(true);
@@ -855,6 +909,13 @@ document.addEventListener('input',function(e){
   var t=e.target,k=t.getAttribute&&t.getAttribute('data-k');
   if(t.id==='q'){
     clearTimeout(_qT);_qT=setTimeout(function(){ST.filters.q=t.value.trim();updateHome();},220);return;
+  }
+  var cq=t.getAttribute&&t.getAttribute('data-cq');
+  if(cq&&draft){
+    var ps=colorParts(draft.color);ps.forEach(function(p){if(p.c===cq)p.n=Math.max(0,num(t.value,0));});
+    setColorParts(ps);saveDraft();
+    var qi=document.querySelector('input[data-k="qty"]');if(qi)qi.value=draft.qty;
+    return;
   }
   if(!k||!draft)return;
   draft[k]=(k==='qty')?num(t.value,0):t.value;
