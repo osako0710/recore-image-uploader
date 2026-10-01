@@ -72,7 +72,7 @@ textarea{min-height:70px}
 .q .qq{font-size:20px;font-weight:700;line-height:1.35}
 .q .pt{font-size:12.5px;color:var(--sub);margin-top:8px}
 .meta{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:10px}
-.meta .nm{font-size:16px;font-weight:700;line-height:1.4}
+.meta .nm{font-size:16px;font-weight:700;line-height:1.4;overflow-wrap:anywhere}
 .meta dl{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:10px 0 0;font-size:13px}
 .meta dt{color:var(--sub)}
 .meta dd{margin:0;word-break:break-all}
@@ -869,6 +869,7 @@ var PASS='';
 var KEY_SEND=null;       // null=未確認 / true=付けて送る / false=窓口がまだ合言葉を受け取らない版なので付けない
 var AUTH_NG=false;       // 窓口に合言葉を断られた。開き直すまで送らず、端末に貯める
 var _reprobed=false;
+var _loadNG=false;       // 直近の進捗の読み込みに失敗した（状態表示の切り替えに使う）
 function readPass(){var m=/(?:^#|&)k=([^&]*)/.exec(location.hash||'');PASS=m?m[1]:'';}
 function keyHdr(h,force){if(PASS&&(KEY_SEND||force))h[KEY_HDR]=PASS;return h;}
 // 未送信がある間は、開いているだけで送り直す（30 秒後から、送れないたびに倍、最長 5 分。無くなれば止める）
@@ -913,7 +914,7 @@ function updateSync(){
   if(typeof bh!=='undefined'&&bh&&bh.busy){el.className='wait';el.textContent='ほかの端末の状況を確認中…';return;}
   var q=QUEUE.length,loading=_cloudP||!_lastCloud;
   if(AUTH_NG){el.className='ng';el.textContent='作業用の QR コードから開き直してください'+(q?'（未送信 '+q+' 件はこの端末に残しています）':'');return;}
-  if(!CLOUD_OK&&!loading){el.className='wait';el.textContent='ほかの人の進み具合を読み込めていません'+(q?'（未送信 '+q+' 件。通信が回復したら自動で送信します）':'（通信が回復したら自動で読み込みます）');return;}
+  if(_loadNG&&!loading){el.className='wait';el.textContent='ほかの人の進み具合を読み込めていません'+(q?'（未送信 '+q+' 件。通信が回復したら自動で送信します）':'（通信が回復したら自動で読み込みます）');return;}
   if(!q&&!CLOUD_OK){el.className='wait';el.textContent='最新の状態を確認中…';return;}
   if(!q){el.className='ok';el.textContent='保存済み ✓';return;}
   el.className='wait';
@@ -1025,16 +1026,16 @@ async function _cloudLoad(){
     }
     if(!r){r=await fetch(url,{signal:ac.signal});if(PASS&&KEY_SEND===null)KEY_SEND=false;}
     if(r.status===401){AUTH_NG=true;CLOUD_OK=false;return false;}
-    if(!r.ok){CLOUD_OK=false;return false;}
+    if(!r.ok){CLOUD_OK=false;_loadNG=true;return false;}
     var p=await r.json();
-    if(!p||!p.results||typeof p.results!=='object'){CLOUD_OK=false;return false;}
+    if(!p||!p.results||typeof p.results!=='object'){CLOUD_OK=false;_loadNG=true;return false;}
     var cur=ST.view==='card'?ST.cardKey:null,before=cur&&ST.results[cur];
     Object.keys(ST.results).forEach(function(k){
       // v2 から引き継いだ答えや未送信の答え（クラウドに無い・手元の方が新しい）を送信キューへ
       var c=p.results[k],lt=Date.parse(ST.results[k].checkedAt||'')||0,ct=c?(Date.parse(c.checkedAt||'')||0):-1;
       if(ST.results[k].checkedAt&&lt>ct&&ST.byKey[k]&&FAILED.indexOf(k)<0&&QUEUE.indexOf(k)<0)QUEUE.push(k);
     });
-    saveQueue();CLOUD_OK=true;
+    saveQueue();CLOUD_OK=true;_loadNG=false;
     var old=ST.results;
     ST.results=mergeResults(old,p.results);
     // 手元で断られた行でも、クラウドに新しい答えがあればそちらを正とする
@@ -1054,7 +1055,7 @@ async function _cloudLoad(){
       draftKey=null;render();toast('ほかの端末で保存された内容を表示しました','warn');
     }
     return true;
-  }catch(e){CLOUD_OK=false;return false;}
+  }catch(e){CLOUD_OK=false;_loadNG=true;return false;}
   finally{clearTimeout(tm);CLOUD_READY=true;updateSync();}
 }
 
