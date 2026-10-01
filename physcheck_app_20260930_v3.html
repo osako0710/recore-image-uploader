@@ -29,6 +29,9 @@ main{padding:10px 10px 120px}
 .chip.on{background:var(--pri);border-color:var(--pri);color:#fff;font-weight:700}
 .chip.tk{background:#fff7e6;border-color:#f0d9a8}
 .chip.tk.on{background:var(--pri);border-color:var(--pri);color:#fff}
+details.flt .chip{min-height:44px;padding:6px 14px;font-size:14px}
+details.flt select{width:100%;min-height:48px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;font-size:16px;background:#fff;color:var(--tx)}
+details.flt .sw{background:none;border:none;padding:0;min-height:44px}
 input[type=text],input[type=search],input[type=number],input[type=url],input[type=month],textarea{
   width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;font-size:16px;background:#fff;color:var(--tx)}
 textarea{min-height:70px}
@@ -301,7 +304,7 @@ function renderHome(){
   h.push('<div class="prog" id="prog"></div>');
   h.push('<details class="flt"'+(ST.fltOpen?' open':'')+'><summary>⚙ 絞り込み</summary>');
   h.push('<div class="sec">月</div><div class="chips" id="fm"></div>');
-  h.push('<div class="sec">確認の種類</div><div class="chips" id="ft"></div>');
+  h.push('<div class="sec">確認の種類</div><select id="ft" aria-label="確認の種類"></select>');
   h.push('<div class="sec">商品名・箱番号で検索</div><input type="search" id="q" placeholder="例: ジャケット / BU-0073" value="'+esc(ST.filters.q)+'">');
   h.push('<div class="sw"><b>確認済みも表示</b><button class="chip'+(ST.showDone?' on':'')+'" id="tgdone" data-act="tgdone">'+(ST.showDone?'ON':'OFF')+'</button></div>');
   h.push('</details>');
@@ -311,9 +314,9 @@ function renderHome(){
     return '<button class="chip'+(ST.filters.month===p[0]?' on':'')+'" data-act="fm" data-v="'+p[0]+'">'+p[1]+'</button>';}).join('');
   $('#fm').innerHTML=fm;
   var cnt={};ST.items.forEach(function(it){cnt[it['task']]=(cnt[it['task']]||0)+(isDone(it._key)?0:1);});
-  var ft='<button class="chip'+(ST.filters.task===''?' on':'')+'" data-act="ft" data-v="">すべて</button>';
+  var ft='<option value="">すべて</option>';
   ft+=TASKS.map(function(t){
-    return '<button class="chip tk'+(ST.filters.task===t[0]?' on':'')+'" data-act="ft" data-v="'+t[0]+'">'+t[1]+' '+(cnt[t[0]]||0)+'</button>';}).join('');
+    return '<option value="'+t[0]+'"'+(ST.filters.task===t[0]?' selected':'')+'>'+t[1]+'（残り '+(cnt[t[0]]||0)+'）</option>';}).join('');
   $('#ft').innerHTML=ft;
   updateHome();
 }
@@ -791,10 +794,19 @@ function openSearch(msg){
 function stopScan(){if(_scan){var q=_scan;_scan=null;q.stop().catch(function(){}).then(function(){try{q.clear();}catch(e){}});}}
 function openScan(){
   if(!window.Html5Qrcode){openSearch('カメラを起動できません。箱番号を入力して検索してください');return;}
-  $('#sheetin').innerHTML='<h3>バーコード読取</h3><div id="reader" style="width:100%"></div><div class="btns"><button class="btn" data-act="typecode">箱番号を入力して検索</button><button class="btn" data-act="closesheet">閉じる</button></div>';
+  $('#sheetin').innerHTML='<h3>バーコード読取</h3><div id="readerwrap" style="width:100%;overflow:hidden;border-radius:10px;background:#000"><div id="reader"></div></div><p style="margin:8px 0 0;font-size:13px;color:var(--sub)">枠の中にバーコード全体が入れば、離れていても読み取れます</p><div class="btns"><button class="btn" data-act="typecode">箱番号を入力して検索</button><button class="btn" data-act="closesheet">閉じる</button></div>';
   $('#sheet').classList.add('open');
+  // 読取用の画像は表示サイズ（CSSピクセル）で作られる。内部を大きく組んで縮小表示し、離れた小さいバーコードも解像できるようにする
+  var wrap=$('#readerwrap'),rd=$('#reader'),vw=wrap.clientWidth||320,W=Math.max(vw,Math.min(1440,vw*4)),sc=vw/W;
+  rd.style.width=W+'px';rd.style.transformOrigin='0 0';rd.style.transform='scale('+sc+')';
+  function fit(){
+    if(!_scan||!rd.isConnected)return;
+    var h=rd.offsetHeight*sc,H=Math.min(h,Math.round(vw*.75));
+    wrap.style.height=Math.round(H)+'px';rd.style.marginTop=-Math.round((h-H)/2)+'px';
+  }
   _scan=new Html5Qrcode('reader');
-  _scan.start({facingMode:'environment'},{fps:10,qrbox:{width:260,height:120}},function(txt){
+  _scan.start({facingMode:'environment'},{fps:10,disableFlip:true,qrbox:{width:Math.round(W*.9),height:Math.round(W*.45)},
+    videoConstraints:{facingMode:'environment',width:{ideal:1920},height:{ideal:1440}}},function(txt){
     txt=normCode(txt);closeSheet();
     var box=ST.items.filter(function(it){return it['箱']===txt;});
     if(box.length){draftKey=null;ST.filters.q='';ST.boxId=txt;ST.view='box';render();
@@ -815,7 +827,7 @@ function openScan(){
       ST.view='home';ST.filters.q='';render();openOutside(txt);return;
     }
     ST.view='home';ST.filters.q=txt;render();toast('読み取り: '+txt+'（該当 '+one.length+' 件）');
-  },function(){}).catch(function(){closeSheet();openSearch('カメラを起動できません。箱番号を入力して検索してください');});
+  },function(){}).then(function(){fit();setTimeout(fit,600);}).catch(function(){closeSheet();openSearch('カメラを起動できません。箱番号を入力して検索してください');});
 }
 
 /* ---------- イベント ---------- */
@@ -916,6 +928,7 @@ window.addEventListener('online',function(){cloudLoad().then(flush);});
 document.addEventListener('toggle',function(e){if(e.target.classList&&e.target.classList.contains('flt'))ST.fltOpen=e.target.open;},true);
 document.addEventListener('change',function(e){
   var t=e.target;
+  if(t.id==='ft'){ST.filters.task=t.value;updateHome();return;}
   if(t.getAttribute&&t.getAttribute('data-act')==='imgadd'&&t.files&&t.files.length){addImages(Array.prototype.slice.call(t.files));t.value='';}
 });
 var _qT=null;
