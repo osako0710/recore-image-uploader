@@ -179,6 +179,7 @@ var imgPending=0;       // 読み込み中の写真の枚数
 var CTX=null;           // {boxes:{箱:[[行,商品名,点数,種別]]},same:{key:{box,sum,on,other}}}
 var bh=null;            // 「この箱が分からないとき」の入力 {box,reason,err,old}
 var qtyAuto=false;      // 数量が初期値のまま（作業者がまだ触っていない）
+var qtyHand=false;      // このカードを開いてから、作業者が数量（色ごとの数を含む）を自分で入れた
 
 /* ---------- utils ---------- */
 function $(s){return document.querySelector(s);}
@@ -427,6 +428,20 @@ function qtyDefault(k){
   var c=sameCounted(k);
   return c!=null?c:num(s.sum,it._qty0);
 }
+function qtyStale(k){ // 合計の案内を見ずに入っていた数量（更新前の下書き・保留にした行の初期値）。合計としては使えない
+  var r=ST.results[k]||{};
+  return (r.qty===0||r.qty)&&(!r.checkedAt||r.skipped===true)&&r.absent!==true&&r.qtyScope!=='box'&&!!sameBox(k);
+}
+function qtyTouch(){qtyAuto=false;qtyHand=true;}
+function qtyReset(){ // 触っていない数量を初期値に出し直す（2 色以上に分けていたら、先頭の色で合計を合わせる）
+  var q=qtyDefault(draftKey),ps=colorParts(draft.color);
+  if(ps.length>=2){
+    var rest=ps.slice(1).reduce(function(a,p){return a+(p.n||0);},0);
+    ps[0].n=Math.max(1,q-rest);draft.color=colorJoin(ps);q=rest+ps[0].n;
+  }
+  draft.qty=q;
+}
+function ctxSt(k){return (CTX&&CTX.st&&CTX.st[k])||'';} // 確認する行そのものの状態（gone=出荷済み / hold=注文あり）
 function sameCounted(k){ // 同じ箱の同じ名前の別の行で、合計として保存済みの数（無ければ null）
   var it=ST.byKey[k],s=sameBox(k);
   if(!s)return null;
@@ -486,7 +501,7 @@ function commitBoxHelp(){
   }
   todo.forEach(function(x){
     var k=x._key,o=Object.assign({},ST.results[k]||{});
-    if(k===k0)Object.assign(o,draft); // 箱の写真は、この画面を開いたときの先頭の行に付ける
+    if(k===k0)o.images=draft.images.slice(); // 箱の写真は、この画面を開いたときの先頭の行に付ける（数えていない数量などは写さない）
     o.issues=(o.issues||[]).filter(function(v){return v.indexOf(BOX_TAG)!==0;}).concat([tag]);
     o.skipped=true;o.checkedAt=now;
     ST.results[k]=o;enqueue(k);
@@ -501,7 +516,7 @@ function redraw(){if(ST.view==='boxhelp')renderBoxHelp();else renderCard(true);}
 function startDraft(k){
   var r=ST.results[k]||{},it=ST.byKey[k];
   draftKey=k;errFields={};issOpen=false;
-  qtyAuto=!(r.qty===0||r.qty);
+  qtyAuto=!(r.qty===0||r.qty);qtyHand=false;
   draft={
     qty:(r.qty===0||r.qty)?r.qty:qtyDefault(k),
     absent:r.absent===true?true:(r.absent===false?false:undefined),
@@ -511,6 +526,8 @@ function startDraft(k){
     condition:r.condition||'',hasLabel:r.hasLabel||'',
     images:(r.images||[]).slice(),issues:(r.issues||[]).slice(),note:r.note||''
   };
+  if(qtyStale(k))qtyAuto=true;
+  if(qtyAuto&&draft.absent!==true)qtyReset();
 }
 function saveDraft(){ // 入力のたびの自動保存（完了にはしない）
   if(!draftKey)return;
@@ -519,6 +536,8 @@ function saveDraft(){ // 入力のたびの自動保存（完了にはしない�
   var o=Object.assign({},prev,draft);
   // 触っていない数量は下書きに残さない（箱の中身の一覧が後から届いたら、初期値を出し直す）
   if(qtyAuto&&!(prev.qty===0||prev.qty))delete o.qty;
+  // 合計の案内を見て自分で入れた数量には、下書きの時点で印を付ける（開き直したときに初期値へ戻さない）
+  if(qtyHand&&draft.absent!==true&&sameBox(draftKey))o.qtyScope='box';
   o.checkedAt=prev.checkedAt||null;
   o.skipped=prev.skipped===true;
   ST.results[draftKey]=o;
@@ -615,6 +634,9 @@ function renderCard(keepScroll){
   h.push('<div class="meta"><div class="nm">'+esc(it['商品名'])+'</div>'+
     ((isDone(k)||isSkipped(k))?'<div class="mt" style="margin-top:6px">'+(isDone(k)?'<span class="tag dn">確認済み（修正する場合は入力し直して保存）</span>':'')+(isSkipped(k)?'<span class="tag later">保留</span>':'')+'</div>':'')+
     (it['参考URL']?'<div class="mt" style="margin-top:6px"><a href="'+esc(it['参考URL'])+'" target="_blank" rel="noopener">参考ページを開く</a></div>':'')+'</div>');
+  var cst=ctxSt(draftKey);
+  if(cst==='gone')h.push('<div class="note">この商品は、出荷済みの記録があります。箱に無ければ「現物なし」を押してください</div>');
+  else if(cst==='hold')h.push('<div class="note">この商品には注文が入っています。数えたら元の箱に戻し、動かさないでください</div>');
   var sm=ctxSame(draftKey);
   if(sameBox(draftKey))h.push('<div class="note">同じ名前の商品が、この箱に '+(sm.box.length+1)+' 件に分かれて登録されています（合計 '+esc(sm.sum)+' 点）。<b>箱の中のこの商品を全部数えて、合計を入れてください</b>'+
     (sameCounted(draftKey)!=null?'<br>同じ名前の別の行で、合計 '+esc(sameCounted(draftKey))+' 点と数え済みです。数が同じなら、そのまま保存してください':'')+'</div>');
@@ -682,7 +704,9 @@ function commit(mode){ // mode: save | absent | later
   else if(mode==='later'){o.skipped=true;o.checkedAt=nowISO();}
   else{o.absent=draft.absent===true;o.skipped=false;o.checkedAt=nowISO();o.qty=num(draft.qty,0);}
   // 同じ名前の行の合計で数えた数量には印を付ける（行ごとの数量と区別する）
-  if(mode==='save'&&!o.absent&&sameBox(k))o.qtyScope='box'; else if(mode!=='later')delete o.qtyScope;
+  // 箱の中身の一覧が読めていないときは、前に付いた印を消さない（合計の数だけ残って行ごとの数に見えるのを防ぐ）
+  if(mode==='absent'||(mode==='save'&&o.absent))delete o.qtyScope;
+  else if(mode==='save'){if(sameBox(k))o.qtyScope='box'; else if(CTX)delete o.qtyScope;}
   ST.results[k]=o;persist(true);
   enqueue(k);flush();
 }
@@ -945,7 +969,7 @@ function colorJoin(ps){
 }
 function setColorParts(ps){ // 2 色以上なら合計を現物数量に入れる
   draft.color=colorJoin(ps);
-  if(ps.length>=2){draft.qty=ps.reduce(function(a,p){return a+(p.n||0);},0);qtyAuto=false;}
+  if(ps.length>=2)draft.qty=ps.reduce(function(a,p){return a+(p.n||0);},0); // 色を選んだだけでは「触った」にしない
 }
 function normCode(s){ // 小文字・空白・ハイフン抜け・桁不足を CSV の表記（BU-/PKG-/PKGI- + 8桁）に揃える
   s=String(s).toUpperCase().replace(/\s+/g,'');
@@ -1029,7 +1053,7 @@ document.addEventListener('click',function(e){
   else if(act==='tobox'){ST.view='box';ST.boxId=ST.byKey[ST.cardKey]['箱'];draftKey=null;render();}
   else if(act==='q-'||act==='q+'){
     if(colorParts(draft.color).length>=2)return;
-    draft.qty=Math.max(0,num(draft.qty,0)+(act==='q+'?1:-1));qtyAuto=false;saveDraft();renderCard(true);
+    draft.qty=Math.max(0,num(draft.qty,0)+(act==='q+'?1:-1));qtyTouch();saveDraft();renderCard(true);
   }
   else if(act==='pres'){
     if(v==='no'){draft.absent=true;draft.qty=0;commit('absent');toast('現物なしで保存','ok');gotoNext();return;}
@@ -1050,7 +1074,7 @@ document.addEventListener('click',function(e){
   else if(act==='cq'){
     var c=t.getAttribute('data-c'),ps2=colorParts(draft.color);
     ps2.forEach(function(p){if(p.c===c)p.n=Math.max(0,(p.n||0)+num(v,0));});
-    setColorParts(ps2);saveDraft();renderCard(true);
+    setColorParts(ps2);qtyTouch();saveDraft();renderCard(true);
   }
   else if(act==='chip'){
     var k=t.getAttribute('data-k');
@@ -1065,7 +1089,10 @@ document.addEventListener('click',function(e){
   }
   else if(act==='boxhelp'){openBoxHelp();}
   else if(act==='bhreason'){if(bh){bh.reason=(bh.reason===v)?'':v;renderBoxHelp();}}
-  else if(act==='bhcancel'){bh=null;draftKey=null;ST.view='box';render();}
+  else if(act==='bhcancel'){
+    if(bh&&draft){draft.images=bh.old.slice();saveDraft();} // やめたら、この画面で撮った写真は付けない
+    bh=null;draftKey=null;ST.view='box';render();
+  }
   else if(act==='boxhelpok'){
     if(!bh||!draft)return;
     if(!bhNew().length||!bh.reason){bh.err=true;renderBoxHelp();toast('写真と「分からないこと」を入れてください','ng');
@@ -1134,13 +1161,13 @@ document.addEventListener('input',function(e){
   var cq=t.getAttribute&&t.getAttribute('data-cq');
   if(cq&&draft){
     var ps=colorParts(draft.color);ps.forEach(function(p){if(p.c===cq)p.n=Math.max(0,num(t.value,0));});
-    setColorParts(ps);saveDraft();
+    setColorParts(ps);qtyTouch();saveDraft();
     var qi=document.querySelector('input[data-k="qty"]');if(qi)qi.value=draft.qty;
     return;
   }
   if(!k||!draft)return;
   draft[k]=(k==='qty')?num(t.value,0):t.value;
-  if(k==='qty')qtyAuto=false;
+  if(k==='qty')qtyTouch();
   saveDraft();
   var f=t.closest('.fld');if(f)f.classList.remove('err');
 });
@@ -1187,7 +1214,10 @@ function showIntro(){
       if(!j||typeof j!=='object')return;
       CTX=j;
       // 開いているカードの数量がまだ初期値なら、合計の案内に合わせて出し直す（個別の数のまま合計として保存しない）
-      if(draftKey&&draft&&qtyAuto&&draft.absent!==true)draft.qty=qtyDefault(draftKey);
+      if(draftKey&&draft&&draft.absent!==true){
+        if(!qtyHand&&qtyStale(draftKey))qtyAuto=true; // 一覧が届く前に開いた、更新前の下書きの数量
+        if(qtyAuto)qtyReset();
+      }
       if(ST.view==='card')renderCard(true); else render();
     }).catch(function(){});
   }).catch(function(){fallbackUI();});
