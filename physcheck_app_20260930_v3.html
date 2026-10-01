@@ -403,6 +403,9 @@ function fldHTML(tk){
   if(n==='presence'){
     body='<div class="two"><button class="big yes'+(draft.absent===false?' on':'')+'" data-act="pres" data-v="yes">現物あり</button>'+
          '<button class="big no'+(draft.absent===true?' on':'')+'" data-act="pres" data-v="no">現物なし</button></div>';
+  }else if(n==='qty'&&colorParts(draft.color).length>=2){
+    body='<div class="qty"><input type="number" data-k="qty" value="'+esc(draft.qty)+'" readonly style="background:#eef1f5"></div>'+
+         '<div class="hint">色ごとの数の合計です（下の「色」で変更）。登録数 '+esc(it['元数量'])+' 点</div>';
   }else if(n==='qty'){
     body='<div class="qty"><button class="qbtn" data-act="q-">−</button>'+
          '<input type="number" inputmode="numeric" pattern="[0-9]*" data-k="qty" value="'+esc(draft.qty)+'">'+
@@ -777,9 +780,8 @@ function openOutside(code){ // 対象外の番号を読んだときの案内
   $('#sheetin').innerHTML='<h3>'+(isItem?'この商品':'この箱')+'は今回の確認対象に入っていません</h3>'+
     '<p style="margin:8px 0">読み取った番号: <b>'+esc(code)+'</b></p>'+
     '<p style="margin:8px 0">開けずに元の場所に戻し、次の箱を読み取ってください。番号が違って見えるときは、手で入力して検索してください。</p>'+
-    '<div class="btns"><button class="btn pri" data-act="scan">次の箱を読み取る</button>'+
-    '<button class="btn" data-act="typecode">番号を入力して検索</button>'+
-    '<button class="btn" data-act="closesheet">閉じる</button></div>';
+    '<div class="btns"><button class="btn pri" data-act="scan">次の箱を読み取る</button></div>'+
+    '<p style="margin:12px 0 0;text-align:center"><button data-act="typecode" style="background:none;border:none;color:var(--sub);font-size:14px;text-decoration:underline;min-height:44px">番号を手で入力して検索</button></p>';
   $('#sheet').classList.add('open');
 }
 function openSearch(msg){
@@ -800,7 +802,18 @@ function openScan(){
     var one=ST.items.filter(function(it){return it['PKGI']===txt;});
     if(one.length===1){draftKey=null;ST.filters.q='';ST.cardKey=one[0]._key;ST.view='card';render();
       if(isDone(one[0]._key))toast('この商品は確認済みです（修正できます）','warn');return;}
-    if(!one.length){ST.view='home';ST.filters.q='';render();openOutside(txt);return;}
+    if(!one.length){
+      var bag=ST.items.filter(function(it){return it['袋']===txt;});
+      if(bag.length){ // 箱の中の袋のラベルを読んだ場合は、その袋の商品へ
+        var todo=bag.filter(function(it){return !isDone(it._key);});
+        draftKey=null;ST.filters.q='';
+        if(todo.length===1||bag.length===1){ST.cardKey=(todo[0]||bag[0])._key;ST.view='card';render();
+          if(!todo.length)toast('この商品は確認済みです（修正できます）','warn');return;}
+        ST.boxId=bag[0]['箱'];ST.view='box';render();
+        toast(todo.length?'袋 '+txt+' の商品は箱 '+bag[0]['箱']+' にあります':'この袋の商品は確認済みです','warn');return;
+      }
+      ST.view='home';ST.filters.q='';render();openOutside(txt);return;
+    }
     ST.view='home';ST.filters.q=txt;render();toast('読み取り: '+txt+'（該当 '+one.length+' 件）');
   },function(){}).catch(function(){closeSheet();openSearch('カメラを起動できません。箱番号を入力して検索してください');});
 }
@@ -824,6 +837,7 @@ document.addEventListener('click',function(e){
   }
   else if(act==='tobox'){ST.view='box';ST.boxId=ST.byKey[ST.cardKey]['箱'];draftKey=null;render();}
   else if(act==='q-'||act==='q+'){
+    if(colorParts(draft.color).length>=2)return;
     draft.qty=Math.max(0,num(draft.qty,0)+(act==='q+'?1:-1));saveDraft();renderCard(true);
   }
   else if(act==='pres'){
@@ -908,8 +922,9 @@ var _qT=null;
 document.addEventListener('input',function(e){
   var t=e.target,k=t.getAttribute&&t.getAttribute('data-k');
   if(t.id==='q'){
-    clearTimeout(_qT);_qT=setTimeout(function(){ST.filters.q=t.value.trim();updateHome();},220);return;
+    clearTimeout(_qT);_qT=setTimeout(function(){var v=t.value.trim(),nc=normCode(v);ST.filters.q=/^(BU|PKGI|PKG)-\d{8}$/.test(nc)?nc:v;updateHome();},220);return;
   }
+  if(k==='qty'&&draft&&colorParts(draft.color).length>=2)return;
   var cq=t.getAttribute&&t.getAttribute('data-cq');
   if(cq&&draft){
     var ps=colorParts(draft.color);ps.forEach(function(p){if(p.c===cq)p.n=Math.max(0,num(t.value,0));});
