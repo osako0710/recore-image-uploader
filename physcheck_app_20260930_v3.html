@@ -442,16 +442,17 @@ function qtyReset(){ // 触っていない数量を初期値に出し直す（2 
   draft.qty=q;
 }
 function ctxSt(k){return (CTX&&CTX.st&&CTX.st[k])||'';} // 確認する行そのものの状態（gone=出荷済み / hold=注文あり）
-function sameCounted(k){ // 同じ箱の同じ名前の別の行で、合計として保存済みの数（無ければ null）
+function sameCountedRow(k){ // 同じ箱の同じ名前の別の行で、合計として保存済みの回答（無ければ null）
   var it=ST.byKey[k],s=sameBox(k);
   if(!s)return null;
   var rows=ST.boxMap[it['箱']].rows;
   for(var i=0;i<rows.length;i++){
     var kk=rows[i]._key,r=ST.results[kk];
-    if(kk!==k&&s.box.indexOf(num(rows[i]['行'],-1))>=0&&r&&r.qtyScope==='box'&&r.absent!==true&&isDone(kk))return num(r.qty,s.sum);
+    if(kk!==k&&s.box.indexOf(num(rows[i]['行'],-1))>=0&&r&&r.qtyScope==='box'&&r.absent!==true&&isDone(kk))return r;
   }
   return null;
 }
+function sameCounted(k){var r=sameCountedRow(k),s=sameBox(k);return r?num(r.qty,s.sum):null;}
 function isBoxTag(v){return String(v).indexOf(BOX_TAG)===0;}
 // 箱ごと確認の写真は 1 行にだけ付く。同じ箱のほかの保留行からも見えるようにする
 function boxPhotos(k){
@@ -527,6 +528,9 @@ function startDraft(k){
     images:(r.images||[]).slice(),issues:(r.issues||[]).slice(),note:r.note||''
   };
   if(qtyStale(k))qtyAuto=true;
+  // 同じ名前の別の行で色ごとの数を入れてあれば、数量と同じく初期値として引き継ぐ（色違いを入れ直させない）
+  var sc=sameCountedRow(k);
+  if(qtyAuto&&!draft.color&&sc&&sc.color)draft.color=sc.color;
   if(qtyAuto&&draft.absent!==true)qtyReset();
 }
 function saveDraft(){ // 入力のたびの自動保存（完了にはしない）
@@ -545,6 +549,8 @@ function saveDraft(){ // 入力のたびの自動保存（完了にはしない�
 }
 function activeFields(){
   var it=ST.byKey[draftKey],t=it._flds.slice();
+  // 同じ名前の行をまとめて数えるときは、色違いが混ざることがあるので色の欄を必ず出す（任意）
+  if(sameBox(draftKey)&&!t.some(function(x){return x.n==='color';}))t.push({n:'color',req:false});
   if(draft.candidateOk===false){ // 違う → url と photo を必須に昇格
     ['url','photo'].forEach(function(n){
       var f=t.filter(function(x){return x.n===n;})[0];
@@ -638,7 +644,7 @@ function renderCard(keepScroll){
   if(cst==='gone')h.push('<div class="note">この商品は、出荷済みの記録があります。箱に無ければ「現物なし」を押してください</div>');
   else if(cst==='hold')h.push('<div class="note">この商品には注文が入っています。数えたら元の箱に戻し、動かさないでください</div>');
   var sm=ctxSame(draftKey);
-  if(sameBox(draftKey))h.push('<div class="note">同じ名前の商品が、この箱に '+(sm.box.length+1)+' 件に分かれて登録されています（合計 '+esc(sm.sum)+' 点）。<b>箱の中のこの商品を全部数えて、合計を入れてください</b>'+
+  if(sameBox(draftKey))h.push('<div class="note">同じ名前の商品が、この箱に '+(sm.box.length+1)+' 件に分かれて登録されています（合計 '+esc(sm.sum)+' 点）。<b>箱の中のこの商品を全部数えて、合計を入れてください</b><br>色が違う物が混ざっていたら、「色」で全部の色を選び、色ごとの数を入れてください'+
     (sameCounted(draftKey)!=null?'<br>同じ名前の別の行で、合計 '+esc(sameCounted(draftKey))+' 点と数え済みです。数が同じなら、そのまま保存してください':'')+'</div>');
   // 出荷済みの箱（もう現物が無いはず）は案内に出さない
   var oth=((sm&&sm.other)||[]).filter(function(x){return x[1]!=='gone';});
