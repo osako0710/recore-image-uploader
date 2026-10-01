@@ -605,7 +605,7 @@ function updateSync(){
   if(FAILED.length){el.className='ng';el.setAttribute('data-act','openfailed');
     el.textContent='保存できませんでした '+FAILED.length+' 件（タップして再入力）';return;}
   el.removeAttribute('data-act');
-  if(!QUEUE.length&&!CLOUD_OK){el.className='wait';el.textContent=_cloudP?'最新の状態を確認中…':'最新の状態を取得できませんでした（通信が回復したら自動で再取得します）';return;}
+  if(!QUEUE.length&&!CLOUD_OK){el.className='wait';el.textContent=(_cloudP||!_lastCloud)?'最新の状態を確認中…':'最新の状態を取得できませんでした（通信が回復したら自動で再取得します）';return;}
   if(!QUEUE.length){el.className='ok';el.textContent='保存済み ✓';return;}
   el.className='wait';
   el.textContent=(_flushing?'送信中… ':'')+'未送信 '+QUEUE.length+' 件（通信が回復したら自動で送信します）';
@@ -689,7 +689,7 @@ function mergeResults(local,cloud){
 // 取り込みは同時に 1 本だけ。取り込み中は送信も保存の押下も待たせる
 var _cloudP=null;
 function cloudLoad(){
-  if(!_cloudP)_cloudP=_cloudLoad().finally(function(){_cloudP=null;updateSync();});
+  if(!_cloudP){_cloudP=_cloudLoad().finally(function(){_cloudP=null;updateSync();});updateSync();}
   return _cloudP;
 }
 async function _cloudLoad(){
