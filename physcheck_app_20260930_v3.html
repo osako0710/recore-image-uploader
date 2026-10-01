@@ -151,7 +151,7 @@ var SIZES=['S','M','L','XL','F','その他'];
 var STORAGES=['常温良好','高温多湿あり','液漏れ・膨張','不明'];
 var CONDITIONS=['未開封','開封済み未使用','使用感あり','傷・欠品'];
 var LABELS=['あり','なし'];
-var FIELD_LABEL={qty:'現物数量',presence:'現物の有無',photo:'写真',candidate:'候補の商品と同じか',url:'参考URL（見つかった場合）',color:'色',size:'サイズ',edition:'種類・型番',set:'セット内容（何が何個）',expiry:'賞味期限',storage:'保管状態',condition:'状態',label:'在庫ラベルの有無'};
+var FIELD_LABEL={qty:'現物数量',presence:'現物の有無',photo:'写真',candidate:'候補の商品と同じか',url:'参考URL（見つかった場合）',color:'色',size:'サイズ',edition:'版・型番',set:'セット内容（何が何個）',expiry:'賞味期限',storage:'保管状態',condition:'状態',label:'在庫ラベルの有無'};
 
 var ST={items:[],byKey:{},boxes:[],boxMap:{},results:{},view:'home',boxId:null,cardKey:null,
         filters:{month:'',task:'',q:''},showDone:false,loaded:false};
@@ -227,7 +227,7 @@ function persist(now){
   if(!now){_saveT=setTimeout(function(){_saveT=null;persist(true);},250);return;}
   try{
     localStorage.setItem(LS_KEY,JSON.stringify({version:3,updatedAt:nowISO(),results:ST.results}));
-  }catch(e){toast('保存できませんでした（端末の空き容量が不足している可能性があります）','ng');}
+  }catch(e){toast('この端末に保存できませんでした（ブラウザの保存領域が使えない可能性があります）','ng');}
   try{
     localStorage.setItem(LS_IMG,JSON.stringify(IMG));
   }catch(e){
@@ -449,7 +449,7 @@ function renderCard(keepScroll){
   if(draftKey!==k)startDraft(k);
   var sc=keepScroll?window.scrollY:0;
   var b=ST.boxMap[it['箱']],rows=boxRows(b),idx=rows.map(function(x){return x._key;}).indexOf(k);
-  setHead(it['箱']+' ・ No.'+it['行'],true);
+  setHead(it['箱'],true);
   var h=[];
   h.push('<div class="q"><div class="qq">'+esc(it['質問'])+'</div>'+(it['見るポイント']?'<div class="pt">確認する点: '+esc(it['見るポイント'])+'</div>':'')+'</div>');
   h.push('<div class="meta"><div class="nm">'+esc(it['商品名'])+'</div>'+
@@ -605,7 +605,7 @@ function updateSync(){
   if(FAILED.length){el.className='ng';el.setAttribute('data-act','openfailed');
     el.textContent='保存できませんでした '+FAILED.length+' 件（タップして再入力）';return;}
   el.removeAttribute('data-act');
-  if(!QUEUE.length&&!CLOUD_OK){el.className='wait';el.textContent='最新の状態を確認中…';return;}
+  if(!QUEUE.length&&!CLOUD_OK){el.className='wait';el.textContent=(_cloudP||!_lastCloud)?'最新の状態を確認中…':'最新の状態を取得できませんでした（通信が回復したら自動で再取得します）';return;}
   if(!QUEUE.length){el.className='ok';el.textContent='保存済み ✓';return;}
   el.className='wait';
   el.textContent=(_flushing?'送信中… ':'')+'未送信 '+QUEUE.length+' 件（通信が回復したら自動で送信します）';
@@ -689,7 +689,7 @@ function mergeResults(local,cloud){
 // 取り込みは同時に 1 本だけ。取り込み中は送信も保存の押下も待たせる
 var _cloudP=null;
 function cloudLoad(){
-  if(!_cloudP)_cloudP=_cloudLoad().finally(function(){_cloudP=null;});
+  if(!_cloudP){_cloudP=_cloudLoad().finally(function(){_cloudP=null;updateSync();});updateSync();}
   return _cloudP;
 }
 async function _cloudLoad(){
