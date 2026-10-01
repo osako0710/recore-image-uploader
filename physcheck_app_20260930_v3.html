@@ -490,7 +490,7 @@ function renderCard(keepScroll){
   var hasPhoto=activeFields().some(function(tk){return tk.n==='photo';});
   h.push('<div class="fld"><div class="lb">メモ<span class="opt">任意</span></div>'+
     (hasPhoto?'':photoHTML('📷 写真でメモする（タグ・色・気になる所）'))+
-    '<textarea data-k="note" maxlength="800" placeholder="文字で書く場合はこちら"'+(hasPhoto?'':' style="margin-top:8px"')+'>'+esc(draft.note)+'</textarea></div>');
+    '<textarea data-k="note" maxlength="400" placeholder="文字で書く場合はこちら"'+(hasPhoto?'':' style="margin-top:8px"')+'>'+esc(draft.note)+'</textarea></div>');
   h.push('<div class="btns">'+
     '<button class="btn pri" data-act="save">保存して次へ</button>'+
     '<button class="btn ngb" data-act="absent">現物なしで保存</button>'+
