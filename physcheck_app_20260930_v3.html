@@ -164,6 +164,7 @@ var IMG={};            // {filename:{d:dataUrl,p:pushed}}
 var draft=null;        // 編集中カードの入力
 var draftKey=null;
 var errFields={};
+var issKey=null;        // 要確認の一覧から開いたカード（保存・戻るで一覧へ戻す）
 var issOpen=false;      // 「困ったことがある」を開いているか
 var imgPending=0;       // 読み込み中の写真の枚数
 
@@ -364,8 +365,8 @@ function renderIssues(){
   var h=['<div class="sec">「困ったことがある」が付いた商品 '+list.length+' 件</div>'];
   h.push(list.length?list.map(function(it){
     var r=ST.results[it._key];
-    return '<button class="row" data-act="card" data-v="'+esc(it._key)+'">'+
-      '<div class="l"><div class="mt">'+esc(it['箱'])+' 行'+esc(it['行'])+'</div>'+
+    return '<button class="row" data-act="isscard" data-v="'+esc(it._key)+'">'+
+      '<div class="l"><div class="mt">'+esc(it['箱'])+'</div>'+
       '<div class="nm">'+esc(it['商品名'])+'</div>'+
       '<div class="mt">'+esc(r.issues.join('・'))+'</div></div><div class="r">›</div></button>';}).join(''):'<div class="empty">要確認の商品はありません</div>');
   $('#app').innerHTML='<div style="display:flex;flex-direction:column;gap:8px">'+h.join('')+'</div>';
@@ -495,7 +496,8 @@ function renderCard(keepScroll){
   if(!it){ST.view='home';return render();}
   if(draftKey!==k)startDraft(k);
   var sc=keepScroll?window.scrollY:0;
-  var b=ST.boxMap[it['箱']],rows=boxRows(b),idx=rows.map(function(x){return x._key;}).indexOf(k);
+  var fromIss=issKey===k;
+  var b=ST.boxMap[it['箱']],rows=fromIss?[it]:boxRows(b),idx=rows.map(function(x){return x._key;}).indexOf(k);
   setHead(it['箱'],true);
   var h=[];
   h.push('<div class="q"><div class="qq">'+esc(it['質問'])+'</div>'+(it['見るポイント']?'<div class="pt">確認する点: '+esc(it['見るポイント'])+'</div>':'')+'</div>');
@@ -521,8 +523,8 @@ function renderCard(keepScroll){
     '<button class="btn ngb" data-act="absent">現物なしで保存</button>'+
     '<div class="two"><button class="btn sm" data-act="prev"'+(idx<=0?' disabled':'')+'>← 前へ</button>'+
     '<button class="btn sm" data-act="later">保留にする</button></div>'+
-    '<button class="btn sm" data-act="tobox">箱の一覧へ戻る</button></div>');
-  h.push('<div class="hint" style="text-align:center;margin-top:10px">この箱 '+(idx+1)+' / '+rows.length+' 件目</div>');
+    (fromIss?'<button class="btn sm" data-act="issview">要確認の一覧へ戻る</button>':'<button class="btn sm" data-act="tobox">箱の一覧へ戻る</button>')+'</div>');
+  if(!fromIss)h.push('<div class="hint" style="text-align:center;margin-top:10px">この箱 '+(idx+1)+' / '+rows.length+' 件目</div>');
   $('#app').innerHTML=h.join('');
   if(keepScroll)window.scrollTo(0,sc); else window.scrollTo(0,0);
 }
@@ -558,6 +560,7 @@ function commit(mode){ // mode: save | absent | later
   enqueue(k);flush();
 }
 function gotoNext(){
+  if(issKey&&issKey===draftKey){draftKey=null;ST.view='issues';render();return;}
   var it=ST.byKey[draftKey],b=ST.boxMap[it['箱']],rows=boxRows(b);
   var keys=rows.map(function(x){return x._key;}),i=keys.indexOf(draftKey),j;
   for(j=1;j<=keys.length;j++){
@@ -881,13 +884,14 @@ document.addEventListener('click',function(e){
   var act=t.getAttribute('data-act'),v=t.getAttribute('data-v');
   // 最初のクラウド読込が終わる前に保存すると、古い下書きで新しい答えを上書きしてしまう
   if(!CLOUD_READY&&((act==='pres'&&v==='no')||act==='save'||act==='absent'||act==='later')){toast('読み込み中です。少し待ってから保存してください','warn');return;}
-  if(imgPending>0&&(act==='save'||act==='absent'||act==='later')){toast('写真を読み込み中です。少し待ってから保存してください','warn');return;}
+  if(imgPending>0&&((act==='pres'&&v==='no')||act==='save'||act==='absent'||act==='later')){toast('写真を読み込み中です。少し待ってから保存してください','warn');return;}
   if(act==='fm'){ST.filters.month=v;renderHome();}
   else if(act==='ft'){ST.filters.task=v;renderHome();}
   else if(act==='issview'){ST.view='issues';draftKey=null;render();}
   else if(act==='tgdone'){ST.showDone=!ST.showDone;render();}
   else if(act==='box'){ST.boxId=v;ST.view='box';render();}
-  else if(act==='card'){ST.cardKey=v;draftKey=null;ST.view='card';render();}
+  else if(act==='card'){issKey=null;ST.cardKey=v;draftKey=null;ST.view='card';render();}
+  else if(act==='isscard'){issKey=v;ST.cardKey=v;draftKey=null;ST.view='card';render();}
   else if(act==='start'){
     var b=ST.boxMap[ST.boxId],rs=boxRows(b).filter(function(x){return !isDone(x._key);});
     if(!rs.length){toast('この箱に未確認の商品はありません','warn');return;}
@@ -1005,7 +1009,8 @@ $('#gear').addEventListener('click',openSheet);
 $('#hscan').addEventListener('click',openScan);
 $('#sheet').addEventListener('click',function(e){if(e.target.id==='sheet')closeSheet();});
 $('#back').addEventListener('click',function(){
-  if(ST.view==='card'){ST.view='box';ST.boxId=ST.byKey[ST.cardKey]['箱'];draftKey=null;}
+  if(ST.view==='card'&&issKey===ST.cardKey){ST.view='issues';draftKey=null;}
+  else if(ST.view==='card'){ST.view='box';ST.boxId=ST.byKey[ST.cardKey]['箱'];draftKey=null;}
   else if(ST.view==='box'){ST.view='home';ST.boxId=null;}
   else if(ST.view==='issues'){ST.view='home';}
   render();
