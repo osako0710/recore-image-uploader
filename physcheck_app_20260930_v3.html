@@ -6,6 +6,7 @@
 <meta name="format-detection" content="telephone=no">
 <title>現物確認</title>
 <style>
+.chip.sm{min-height:44px;padding:6px 12px;font-size:14px}
 :root{
   --bg:#f4f5f7; --card:#fff; --line:#dfe3e8; --tx:#16202b; --sub:#63707e;
   --pri:#1565d8; --pri-d:#0f4ea8; --ok:#0f9d58; --ng:#d93025; --warn:#b06000;
@@ -346,6 +347,7 @@ function updateHome(){
 function rowHTML(it){
   var k=it._key,d=isDone(k),sk=isSkipped(k),r=ST.results[k];
   var badge=d?'<span class="tag dn">'+(r&&r.absent?'現物なし':'確認済み')+'</span>':(sk?'<span class="tag later">保留</span>':'');
+  if(r&&r.issues&&r.issues.length)badge+='<span class="tag later">要確認</span>';
   return '<button class="row'+(d?' done':'')+'" data-act="card" data-v="'+esc(k)+'">'+
     '<div class="l"><div class="mt">'+badge+'行'+esc(it['行'])+'</div>'+
     '<div class="nm">'+esc(it['商品名'])+'</div></div>'+
@@ -378,7 +380,7 @@ function startDraft(k){
     refUrl:r.refUrl||'',color:r.color||'',size:r.size||'',edition:r.edition||'',
     setContents:r.setContents||'',expiry:r.expiry||'',storage:r.storage||'',
     condition:r.condition||'',hasLabel:r.hasLabel||'',
-    images:(r.images||[]).slice(),note:r.note||''
+    images:(r.images||[]).slice(),issues:(r.issues||[]).slice(),note:r.note||''
   };
 }
 function saveDraft(){ // 入力のたびの自動保存（完了にはしない）
@@ -402,6 +404,13 @@ function activeFields(){
   return t;
 }
 function imgSrc(n){return (IMG[n]&&IMG[n].d)?IMG[n].d:CDN_BASE+n;}
+var ISSUES=['確認のしかたが分からない','中古・使用感がある','商品名と中身が違う','破損・汚れがある','ラベルや番号が違う','その他'];
+function photoHTML(label){
+  var th=draft.images.map(function(nm){
+    return '<div class="thumb"><img src="'+esc(imgSrc(nm))+'" alt=""><button data-act="imgdel" data-v="'+esc(nm)+'">×</button></div>';}).join('');
+  return '<label class="filebtn">'+label+'<input type="file" accept="image/*" capture="environment" multiple data-act="imgadd"></label>'+
+         '<div class="thumbs">'+th+'</div>'+(draft.images.length?'<div class="hint">'+draft.images.length+' 枚</div>':'');
+}
 function fldHTML(tk){
   var n=tk.n,req=tk.req,lb=FIELD_LABEL[n]||n,it=ST.byKey[draftKey];
   var head='<div class="lb">'+esc(lb)+(req?'<span class="req">必須</span>':'<span class="opt">任意</span>')+'</div>';
@@ -417,10 +426,7 @@ function fldHTML(tk){
          '<input type="number" inputmode="numeric" pattern="[0-9]*" data-k="qty" value="'+esc(draft.qty)+'">'+
          '<button class="qbtn" data-act="q+">＋</button></div><div class="hint">登録数 '+esc(it['元数量'])+' 点</div>';
   }else if(n==='photo'){
-    var th=draft.images.map(function(nm){
-      return '<div class="thumb"><img src="'+esc(imgSrc(nm))+'" alt=""><button data-act="imgdel" data-v="'+esc(nm)+'">×</button></div>';}).join('');
-    body='<label class="filebtn">＋ 写真を撮る / 選ぶ<input type="file" accept="image/*" capture="environment" multiple data-act="imgadd"></label>'+
-         '<div class="thumbs">'+th+'</div>'+(draft.images.length?'<div class="hint">'+draft.images.length+' 枚</div>':'');
+    body=photoHTML('＋ 写真を撮る / 選ぶ');
   }else if(n==='candidate'){
     var cu=it['候補URL'],ct=it['候補タイトル'];
     body='<div class="cand">'+(ct?'<div><b>'+esc(ct)+'</b></div>':'')+
@@ -476,8 +482,15 @@ function renderCard(keepScroll){
     ((isDone(k)||isSkipped(k))?'<div class="mt" style="margin-top:6px">'+(isDone(k)?'<span class="tag dn">確認済み（修正する場合は入力し直して保存）</span>':'')+(isSkipped(k)?'<span class="tag later">保留</span>':'')+'</div>':'')+
     (it['参考URL']?'<div class="mt" style="margin-top:6px"><a href="'+esc(it['参考URL'])+'" target="_blank" rel="noopener">参考ページを開く</a></div>':'')+'</div>');
   activeFields().forEach(function(tk){h.push(fldHTML(tk));});
+  h.push('<div class="fld"><div class="lb">困ったこと・気になること<span class="opt">任意</span></div>'+
+    '<div class="chips">'+ISSUES.map(function(v){
+      return '<button class="chip sm'+(draft.issues.indexOf(v)>=0?' on':'')+'" data-act="issue" data-v="'+esc(v)+'">'+esc(v)+'</button>';}).join('')+'</div>'+
+    '<div class="hint">迷ったら選んでください。担当者があとで確認します</div></div>');
+  // 文字を打たなくても、写真を撮るだけで伝えられる（色やサイズは写真から後で読み取る）
+  var hasPhoto=activeFields().some(function(tk){return tk.n==='photo';});
   h.push('<div class="fld"><div class="lb">メモ<span class="opt">任意</span></div>'+
-    '<textarea data-k="note" maxlength="800" placeholder="気づいたこと">'+esc(draft.note)+'</textarea></div>');
+    (hasPhoto?'':photoHTML('📷 写真でメモする（タグ・色・気になる所）'))+
+    '<textarea data-k="note" maxlength="800" placeholder="文字で書く場合はこちら"'+(hasPhoto?'':' style="margin-top:8px"')+'>'+esc(draft.note)+'</textarea></div>');
   h.push('<div class="btns">'+
     '<button class="btn pri" data-act="save">保存して次へ</button>'+
     '<button class="btn ngb" data-act="absent">現物なしで保存</button>'+
@@ -567,7 +580,7 @@ async function addImages(files){
 
 /* ---------- CSV 書き出し ---------- */
 function buildExportCSV(){
-  var head=['月','箱','袋','行','PKGI','商品名','task名','元数量','現物数量','現物なし','候補で合っている','参考URL(現場入力)','色','サイズ','版・SKU','セット内容','賞味期限','保管状態','状態','在庫ラベル','画像ファイル名','メモ','あとで','確認日時'];
+  var head=['月','箱','袋','行','PKGI','商品名','task名','元数量','現物数量','現物なし','候補で合っている','参考URL(現場入力)','色','サイズ','版・SKU','セット内容','賞味期限','保管状態','状態','在庫ラベル','画像ファイル名','メモ','あとで','確認日時','気になること'];
   var rows=[head];
   ST.items.forEach(function(it){
     var r=ST.results[it._key]||{};
@@ -579,7 +592,7 @@ function buildExportCSV(){
       r.candidateOk===true?'はい':(r.candidateOk===false?'いいえ':''),
       r.refUrl||'',r.color||'',r.size||'',r.edition||'',r.setContents||'',r.expiry||'',
       r.storage||'',r.condition||'',r.hasLabel||'',(r.images||[]).join(';'),r.note||'',
-      r.skipped===true?'はい':'', r.checkedAt||''
+      r.skipped===true?'はい':'', r.checkedAt||'',(r.issues||[]).join(';')
     ]);
   });
   var csv=rows.map(function(r){return r.map(function(c){return '"'+String(c==null?'':c).replace(/"/g,'""')+'"';}).join(',');}).join('\r\n')+'\r\n';
@@ -879,6 +892,9 @@ document.addEventListener('click',function(e){
   else if(act==='chip'){
     var k=t.getAttribute('data-k');
     draft[k]=(draft[k]===v)?'':v;saveDraft();renderCard(true);
+  }
+  else if(act==='issue'){
+    var ii=draft.issues.indexOf(v);if(ii>=0)draft.issues.splice(ii,1);else draft.issues.push(v);saveDraft();renderCard(true);
   }
   else if(act==='imgdel'){
     var i=draft.images.indexOf(v);if(i>=0)draft.images.splice(i,1);saveDraft();renderCard(true);
