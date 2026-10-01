@@ -131,6 +131,7 @@ details.flt[open]{padding-bottom:12px}
 <header>
   <button id="back" style="display:none">戻る</button>
   <div class="ttl" id="title">現物確認</div>
+  <button id="hscan" style="display:none;padding:0 12px;font-weight:700;border-color:var(--pri);color:var(--pri)">📷 読み取る</button>
   <button id="gear" aria-label="設定">⚙</button>
 </header>
 <main id="app"><div class="loading">読み込み中…</div></main>
@@ -294,6 +295,7 @@ function render(){
 function setHead(title,back){
   $('#title').textContent=title;
   $('#back').style.display=back?'':'none';
+  $('#hscan').style.display=back?'':'none'; // 一覧以外のどの画面からも、次の読み取りへ進める
 }
 function nf(n){return n.toLocaleString('en-US');}
 
@@ -356,7 +358,8 @@ function renderBox(){
   h.push('<div class="prog"><div class="t">残り <b>'+st.remain+'</b> / 全 '+st.total+'</div>'+
     '<div class="bar"><i style="width:'+(st.total?Math.round((st.total-st.remain)/st.total*100):0)+'%"></i></div>'+
     '</div>');
-  if(st.remain===0)h.push('<div class="sec"></div><div class="donebox">この箱の確認が完了しました</div>');
+  if(st.remain===0)h.push('<div class="donebox">この箱の確認が完了しました</div><button class="scanbtn" data-act="scan">📷 次の箱を読み取る</button>'+
+    '<div class="btns"><button class="btn sm" data-act="tohome">箱の一覧へ戻る</button></div>');
   else h.push('<div class="btns"><button class="btn pri" data-act="start">この箱の確認を始める</button></div>');
   h.push('<div class="sec">未完了 '+st.remain+' 件'+(ST.showDone?'（確認済みも表示中）':'')+'</div>');
   var list=rows.filter(function(it){return ST.showDone||!isDone(it._key);}).map(rowHTML);
@@ -893,6 +896,7 @@ document.addEventListener('click',function(e){
     if(idx>0){ST.cardKey=ks[idx-1];draftKey=null;render();}
   }
   else if(act==='scan'){openScan();}
+  else if(act==='tohome'){ST.view='home';ST.boxId=null;draftKey=null;render();}
   else if(act==='flushnow'){closeSheet();if(CLOUD_OK)flush();else cloudLoad().then(flush);}
   else if(act==='openfailed'){if(FAILED.length&&ST.byKey[FAILED[0]]){ST.cardKey=FAILED[0];draftKey=null;ST.view='card';render();}}
   else if(act==='introok'){try{localStorage.setItem(LS_INTRO,'1');}catch(e){}var ov=$('#intro');if(ov)ov.remove();}
@@ -951,6 +955,7 @@ document.addEventListener('input',function(e){
   var f=t.closest('.fld');if(f)f.classList.remove('err');
 });
 $('#gear').addEventListener('click',openSheet);
+$('#hscan').addEventListener('click',openScan);
 $('#sheet').addEventListener('click',function(e){if(e.target.id==='sheet')closeSheet();});
 $('#back').addEventListener('click',function(){
   if(ST.view==='card'){ST.view='box';ST.boxId=ST.byKey[ST.cardKey]['箱'];draftKey=null;}
