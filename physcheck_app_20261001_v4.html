@@ -104,6 +104,8 @@ textarea{min-height:70px}
 .slot .sn{font-size:15px;font-weight:700;display:flex;align-items:center;gap:6px}
 .slot .thumbs{margin-top:6px}
 .slot .thumb{width:64px;height:64px}
+.plink{display:flex;align-items:center;gap:8px;margin-top:6px}
+.plink .thumbs{margin-top:0;flex:none}
 .slotbtn{flex:none;display:flex;align-items:center;justify-content:center;min-width:84px;min-height:48px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:14px;font-weight:700;color:var(--pri)}
 .slotbtn input,label.btn input{display:none}
 label.btn{display:flex;align-items:center;justify-content:center;text-align:center}
@@ -178,10 +180,17 @@ var CONDITIONS=['未開封','開封済み未使用','使用感あり','傷・欠
 var LABELS=['あり','なし'];
 // 出品に使う写真の枠 [保存する記号, 画面の名前, 撮り方]。枠の無い写真はメモ用
 var SLOTS=[['f','正面','全体が入るように'],['b','裏・ラベル','型番やバーコードの数字が読めるように'],['x','別の角度','光の当たり方を変えて、もう 1 枚'],['d','傷・汚れの所','気になる所を大きく'],['a','付属品','全部並べて']];
-var CONDS=['新品・未開封','開封済み・きれい','汚れ・傷・におい・欠品がある'];
-var COND_BAD=CONDS[2];
-var COND_PARTS=['裾・袖口','タグ','金具','シミ・汚れ','破れ・破損','におい','付属品が足りない'];
-var COND_OLD={'未開封':CONDS[0],'開封済み未使用':CONDS[1],'使用感あり':COND_BAD,'傷・欠品':COND_BAD}; // 前の版の「状態」の答え
+// 状態 [保存する値, 画面の名前]。4 つを別の値で持つ（開封済みを 1 つにまとめない）
+var CONDS=[['new','新品・未開封'],['opened','開封済み・使っていない'],['used','使ったあとがある・きれい'],['damaged','汚れ・傷・破れ・こわれ・におい・欠品がある']];
+var COND_BAD='damaged';
+var COND_OLD={'未開封':'new','開封済み未使用':'opened','使用感あり':'used','傷・欠品':COND_BAD}; // 前の版の「状態」の答え
+// 4 つ目を選んだときに聞く「何があるか」。写真が要るのは PROB_PHOTO の 3 つ（におい・付属品は写真に写らない）
+var PROBS=[['dirt','汚れ'],['scratch','傷'],['broken','破れ・こわれ'],['smell','におい'],['missing','付属品が足りない']];
+var PROB_PHOTO=['dirt','scratch','broken'];
+var PLACES=[['hem','裾'],['cuff','袖口'],['neck','襟・首まわり'],['front','前'],['back','後ろ'],['bottom','底'],['inside','内側'],['tag','タグ'],['metal','金具'],['other','そのほか']];
+var MISSING=[['box','箱'],['manual','説明書'],['charger','充電器'],['cable','ケーブル'],['strap','ストラップ'],['lid','ふた'],['case','袋・ケース'],['spare','替えの部品'],['other','そのほか']];
+function labelMap(a){var m={};a.forEach(function(x){m[x[0]]=x[1];});return m;}
+var COND_LABEL=labelMap(CONDS),PROB_LABEL=labelMap(PROBS),PLACE_LABEL=labelMap(PLACES),MISSING_LABEL=labelMap(MISSING);
 var SHIPS=[['60','60 まで'],['80','80 まで'],['100','100 まで'],['140','140 まで'],['160','160 まで'],['over','160 より大きい']];
 var SHIP_LABEL={};SHIPS.forEach(function(x){SHIP_LABEL[x[0]]=x[1];});
 var FIELD_LABEL={qty:'現物数量',presence:'現物の有無',photo:'写真',candidate:'候補の商品と同じか',url:'参考URL（見つかった場合）',color:'色',size:'サイズ',edition:'版・型番',set:'セット内容（何が何個）',expiry:'賞味期限',storage:'保管状態',condition:'状態',label:'在庫ラベルの有無'};
@@ -561,10 +570,12 @@ function startDraft(k){
     setContents:r.setContents||'',expiry:r.expiry||'',storage:r.storage||'',
     condition:r.condition||'',hasLabel:r.hasLabel||'',
     images:(r.images||[]).slice(),issues:(r.issues||[]).slice(),note:r.note||'',
-    cond:r.cond||COND_OLD[r.condition]||'',condParts:(r.condParts||[]).slice(),
-    ship:r.ship||'',shipOdd:r.shipOdd===true,colorHard:r.colorHard===true,
+    cond:(COND_LABEL[r.cond]?r.cond:'')||COND_OLD[r.condition]||'',
+    condProblems:(r.condProblems||[]).slice(),condPlaces:{},missingParts:(r.missingParts||[]).slice(),
+    shipClass:r.shipClass||r.ship||'',shipIrregular:r.shipIrregular===true||r.shipOdd===true,colorHard:r.colorHard===true,
     slots:Object.assign({},r.slots||{})
   };
+  Object.keys(r.condPlaces||{}).forEach(function(p){draft.condPlaces[p]=(r.condPlaces[p]||[]).slice();});
   if(qtyStale(k))qtyAuto=true;
   // 同じ名前の別の行で色ごとの数を入れてあれば、数量と同じく初期値として引き継ぐ（色違いを入れ直させない）
   var sc=sameCountedRow(k);
@@ -582,6 +593,7 @@ function qtySync(){ // 2 色以上のときは、色ごとの数の合計を現�
 }
 function saveDraft(){ // 入力のたびの自動保存（完了にはしない）
   if(!draftKey)return;
+  linkSync();
   var prev=ST.results[draftKey]||{};
   if(prev.checkedAt)return; // 保存済みの行は「保存」を押すまで書き換えない（押さずに離れた変更を送らない）
   qtySync();
@@ -611,24 +623,54 @@ function activeFields(){
 }
 /* ---------- 写真の枠・状態・大きさ（全部の行で聞く） ---------- */
 function shootOn(){return !!draft&&draft.absent!==true;}
-function slotOf(nm){return (draft.slots&&draft.slots[nm])||'';}
+// 枠の値は 1 文字。傷の枠だけ、写っている問題を後ろに付ける（例 d:dirt+scratch）
+function slotOf(nm){return String((draft.slots&&draft.slots[nm])||'').charAt(0);}
 function slotImgs(sl){return draft.images.filter(function(nm){return slotOf(nm)===sl;});}
-function slotName(sl){var x=SLOTS.filter(function(s){return s[0]===sl;})[0];return x?x[1]:'';}
+function slotName(sl){var c=String(sl||'').charAt(0),x=SLOTS.filter(function(s){return s[0]===c;})[0];return x?x[1]:'';}
+function linksIn(v){v=String(v||'');return v.charAt(1)===':'?v.slice(2).split('+').filter(Boolean):[];}
+function linksOf(nm){return linksIn(draft.slots&&draft.slots[nm]);}
+function setLinks(nm,ps){draft.slots[nm]='d'+(ps.length?':'+ps.join('+'):'');}
+function photoProbs(){ // 写真が要る問題（選んだ順ではなく決まった順）
+  return draft.cond===COND_BAD?PROB_PHOTO.filter(function(p){return draft.condProblems.indexOf(p)>=0;}):[];
+}
+function unlinked(){ // どの写真にも結び付いていない問題
+  var ds=slotImgs('d');
+  return photoProbs().filter(function(p){return !ds.some(function(nm){return linksOf(nm).indexOf(p)>=0;});});
+}
+function linkSync(){ // 選んでいない問題との結び付きを外す。問題が 1 つだけなら、傷の枠の写真は全部その問題の写真にする
+  if(!draft||!draft.slots)return;
+  var pp=photoProbs();
+  slotImgs('d').forEach(function(nm){
+    var ls=linksOf(nm).filter(function(p){return pp.indexOf(p)>=0;});
+    if(pp.length===1&&!ls.length)ls=[pp[0]];
+    setLinks(nm,ls);
+  });
+}
 function needSlots(){
   var cp=colorParts(draft.color),need=['f','b'];
   // 色が写真 1 枚では決めにくい行は、光を変えた 1 枚を足してもらう
   if(draft.colorHard||cp.length>=2||cp.some(function(p){return p.c==='その他';}))need.push('x');
-  if(draft.cond===COND_BAD)need.push('d');
+  if(photoProbs().length)need.push('d');
   return need;
 }
 function missSlots(){return needSlots().filter(function(sl){return !slotImgs(sl).length;});}
 function slim(o){ // 新しい項目は、入っているときだけ残す（保存先の 1 行の大きさに収める）
   var sl=o.slots||{},t={},n=0;
-  (o.images||[]).forEach(function(nm){if(sl[nm]){t[nm]=sl[nm];n++;}});
+  var pr=o.cond===COND_BAD?(o.condProblems||[]):[],pl={},pn=0;
+  (o.images||[]).forEach(function(nm){
+    if(!sl[nm])return;
+    var c=String(sl[nm]).charAt(0),ls=c==='d'?linksIn(sl[nm]).filter(function(p){return pr.indexOf(p)>=0&&PROB_PHOTO.indexOf(p)>=0;}):[];
+    t[nm]=c+(ls.length?':'+ls.join('+'):'');n++;
+  });
   if(n)o.slots=t; else delete o.slots;
-  if(o.cond!==COND_BAD||!(o.condParts&&o.condParts.length))delete o.condParts;
-  ['cond','ship'].forEach(function(f){if(!o[f])delete o[f];});
-  ['shipOdd','colorHard'].forEach(function(f){if(o[f]!==true)delete o[f];});
+  // 状態の内訳は、4 つ目を選んでいるときだけ残す。場所は選んでいる問題の分だけ
+  if(pr.length)o.condProblems=pr.slice(); else delete o.condProblems;
+  PROB_PHOTO.forEach(function(p){var a=(o.condPlaces||{})[p];if(pr.indexOf(p)>=0&&a&&a.length){pl[p]=a.slice();pn++;}});
+  if(pn)o.condPlaces=pl; else delete o.condPlaces;
+  if(pr.indexOf('missing')>=0&&o.missingParts&&o.missingParts.length)o.missingParts=o.missingParts.slice(); else delete o.missingParts;
+  ['condParts','ship','shipOdd'].forEach(function(f){delete o[f];}); // 前の形の項目は残さない
+  ['cond','shipClass'].forEach(function(f){if(!o[f])delete o[f];});
+  ['shipIrregular','colorHard'].forEach(function(f){if(o[f]!==true)delete o[f];});
   return o;
 }
 function thumbsHTML(ns){
@@ -636,17 +678,32 @@ function thumbsHTML(ns){
     return '<div class="thumb"><img src="'+esc(imgSrc(nm))+'" alt=""><button data-act="imgdel" data-v="'+esc(nm)+'">×</button></div>';}).join('');
 }
 var NO_FACE='人の顔・送り状は写さない';
-function shotInput(sl){return '<input type="file" accept="image/*" capture="environment" data-act="imgadd" data-slot="'+sl+'">';}
+function shotInput(sl,p){return '<input type="file" accept="image/*" capture="environment" data-act="imgadd" data-slot="'+sl+'"'+(p?' data-p="'+p+'"':'')+'>';}
 function chardHTML(){
   return '<button class="lnk'+(draft.colorHard?' on':'')+'" data-act="chard">'+(draft.colorHard?'✓ 色が分かりにくい（もう一度押すと取り消し）':'色が分かりにくい')+'</button>';
 }
 function condHTML(){
   return '<div class="fld'+(errFields.cond?' err':'')+'" data-fld="cond"><div class="lb">商品の状態<span class="req">必須</span></div>'+
-    '<div class="chips">'+CONDS.map(function(v){
-      return '<button class="chip'+(draft.cond===v?' on':'')+'" data-act="chip" data-k="cond" data-v="'+esc(v)+'">'+esc(v)+'</button>';}).join('')+'</div>'+
-    (draft.cond===COND_BAD?'<div class="hint" style="margin:10px 0 6px">どこですか（いくつでも）</div><div class="chips">'+COND_PARTS.map(function(v){
-      return '<button class="chip sm'+(draft.condParts.indexOf(v)>=0?' on':'')+'" data-act="cpart" data-v="'+esc(v)+'">'+esc(v)+'</button>';}).join('')+'</div>':'')+
-    '<div class="emsg">'+(errFields.cond===2?'どこが気になるか、1 つ以上選んでください':'1 つ選んでください')+'</div></div>';
+    '<div class="chips">'+CONDS.map(function(x){
+      return '<button class="chip'+(draft.cond===x[0]?' on':'')+'" data-act="chip" data-k="cond" data-v="'+x[0]+'">'+esc(x[1])+'</button>';}).join('')+'</div>'+
+    '<div class="hint">使ったかどうか迷うときは「'+esc(COND_LABEL.used)+'」を選んでください</div>'+
+    (draft.cond===COND_BAD?condSub('何がありますか（いくつでも）',PROBS,draft.condProblems,'cprob','')+
+      photoProbs().map(function(p){return condSub('「'+PROB_LABEL[p]+'」はどこですか（いくつでも）',PLACES,draft.condPlaces[p]||[],'cplace',p);}).join('')+
+      (draft.condProblems.indexOf('missing')>=0?condSub('足りない物はどれですか（いくつでも）',MISSING,draft.missingParts,'cmiss',''):''):'')+
+    '<div class="emsg">'+(typeof errFields.cond==='string'?esc(errFields.cond):'1 つ選んでください')+'</div></div>';
+}
+function condSub(title,opts,sel,act,p){ // 状態の内訳を選ぶ 1 段（文字は打たせない）
+  return '<div class="hint" style="margin:12px 0 6px">'+esc(title)+'</div><div class="chips">'+opts.map(function(x){
+    return '<button class="chip sm'+(sel.indexOf(x[0])>=0?' on':'')+'" data-act="'+act+'" data-v="'+x[0]+'"'+(p?' data-p="'+p+'"':'')+'>'+esc(x[1])+'</button>';}).join('')+'</div>';
+}
+function dThumbsHTML(ims){ // 傷の枠: 問題が 2 つ以上あるときは、写真ごとに「どれが写っているか」を選ぶ
+  var pp=photoProbs();
+  if(pp.length<2)return '<div class="thumbs">'+thumbsHTML(ims)+'</div>';
+  return ims.map(function(nm){
+    var ls=linksOf(nm);
+    return '<div class="plink"><div class="thumbs">'+thumbsHTML([nm])+'</div><div class="chips">'+pp.map(function(p){
+      return '<button class="chip sm'+(ls.indexOf(p)>=0?' on':'')+'" data-act="plink" data-v="'+esc(nm)+'" data-p="'+p+'">'+esc(PROB_LABEL[p])+'</button>';}).join('')+'</div></div>';
+  }).join('')+'<div class="hint">写真ごとに、写っているものを選んでください（いくつでも）</div>';
 }
 function slotsHTML(colorShown){
   var need=needSlots(),h='',first=true;
@@ -654,20 +711,20 @@ function slotsHTML(colorShown){
     var ims=slotImgs(s[0]),req=need.indexOf(s[0])>=0;
     if(!req&&!ims.length&&s[0]!=='a')return;
     h+='<div class="slot'+(first?' first':'')+'"><div class="sl"><div class="sn">'+esc(s[1])+(req?'<span class="req">必須</span>':'<span class="opt">任意</span>')+'</div>'+
-      '<div class="hint" style="margin-top:2px">'+esc(s[2])+'</div>'+(ims.length?'<div class="thumbs">'+thumbsHTML(ims)+'</div>':'')+'</div>'+
+      '<div class="hint" style="margin-top:2px">'+esc(s[2])+'</div>'+(ims.length?(s[0]==='d'?dThumbsHTML(ims):'<div class="thumbs">'+thumbsHTML(ims)+'</div>'):'')+'</div>'+
       '<label class="slotbtn">'+(ims.length?'＋ もう 1 枚':'📷 撮る')+shotInput(s[0])+'</label></div>';
     first=false;
   });
   return '<div class="fld'+(errFields.slots?' err':'')+'" data-fld="slots"><div class="lb">写真</div>'+h+
     '<div class="hint">'+NO_FACE+'</div>'+(colorShown?'':chardHTML())+
-    '<div class="emsg">「'+esc(missSlots().map(slotName).join('」「'))+'」の写真を撮ってください</div></div>';
+    '<div class="emsg">'+(typeof errFields.slots==='string'?esc(errFields.slots):'「'+esc(missSlots().map(slotName).join('」「'))+'」の写真を撮ってください')+'</div></div>';
 }
 function shipHTML(){
-  return '<div class="fld'+(errFields.ship?' err':'')+'" data-fld="ship"><div class="lb">箱に入れたときの大きさ<span class="req">必須</span></div>'+
+  return '<div class="fld'+(errFields.shipClass?' err':'')+'" data-fld="shipClass"><div class="lb">箱に入れたときの大きさ<span class="req">必須</span></div>'+
     '<div class="hint" style="margin:0 0 8px">たて＋よこ＋高さの合計（cm）。だいたいで大丈夫です</div>'+
     '<div class="chips">'+SHIPS.map(function(x){
-      return '<button class="chip sm'+(draft.ship===x[0]?' on':'')+'" data-act="chip" data-k="ship" data-v="'+x[0]+'">'+esc(x[1])+'</button>';}).join('')+'</div>'+
-    '<div class="chips" style="margin-top:8px"><button class="chip sm'+(draft.shipOdd?' on':'')+'" data-act="shipodd">重い・形が箱に収まらない</button></div>'+
+      return '<button class="chip sm'+(draft.shipClass===x[0]?' on':'')+'" data-act="chip" data-k="shipClass" data-v="'+x[0]+'">'+esc(x[1])+'</button>';}).join('')+'</div>'+
+    '<div class="chips" style="margin-top:8px"><button class="chip sm'+(draft.shipIrregular?' on':'')+'" data-act="shipodd">重い・形が箱に収まらない</button></div>'+
     '<div class="emsg">1 つ選んでください</div></div>';
 }
 function imgSrc(n){return (IMG[n]&&IMG[n].d)?IMG[n].d:CDN_BASE+n;}
@@ -787,9 +844,13 @@ function renderCard(keepScroll){
     (hasPhoto?'':photoHTML('📷 写真でメモする（タグ・色・気になる所）',''))+
     '<textarea data-k="note" maxlength="400" placeholder="文字で書く場合はこちら"'+(hasPhoto?'':' style="margin-top:8px"')+'>'+esc(draft.note)+'</textarea><div class="emsg">'+(typeof errFields.note==='string'?esc(errFields.note):errFields.note===2?'「'+ISSUE_MIX+'」のときは、全部並べた写真を 1 枚撮ってください':'「その他」の内容を、写真か文字で入れてください')+'</div></div>');
   // 目立つボタンは 1 つ。必須の写真がそろうまでは「写真を撮る」、そろったら同じ場所で「保存して次へ」
-  var miss=shootOn()?missSlots():[];
+  // 問題ごとの写真が足りないときも、同じ場所で「写真を撮る（問題の名前）」。枚数の上限で撮れないときは担当者に回す
+  var miss=shootOn()?missSlots():[],unl=shootOn()&&!miss.length?unlinked():[];
+  var shotP=miss.length?(miss[0]==='d'?unlinked()[0]:''):unl[0],shotSl=miss.length?miss[0]:'d';
+  var shotFull=(miss.length||unl.length)&&draft.images.length>=PHOTO_MAX;
   h.push('<div class="btns">'+
-    (miss.length?'<label class="btn pri">📷 写真を撮る（'+esc(slotName(miss[0]))+'）'+shotInput(miss[0])+'</label><div class="hint" style="text-align:center;margin-top:0">'+NO_FACE+'</div>'
+    (shotFull?'<button class="btn pri" data-act="later">担当者に見せる（保留）</button><div class="hint" style="text-align:center;margin-top:0">写真は '+PHOTO_MAX+' 枚までです。入りきらないときは担当者が確認します</div>'
+     :(miss.length||unl.length)?'<label class="btn pri">📷 写真を撮る（'+esc(shotP?PROB_LABEL[shotP]:slotName(shotSl))+'）'+shotInput(shotSl,shotP)+'</label><div class="hint" style="text-align:center;margin-top:0">'+NO_FACE+'</div>'
                 :'<button class="btn pri" data-act="save">保存して次へ</button>')+
     '<button class="btn ngb" data-act="absent">現物なしで保存</button>'+
     '<div class="two"><button class="btn sm" data-act="prev"'+(idx<=0?' disabled':'')+'>← 前へ</button>'+
@@ -831,11 +892,19 @@ function validate(){
     else if(ps.length>=2&&draft.absent!==true&&ps.some(function(p){return p.n==null;})){errFields.color='色ごとの数を入れてください';ok=false;}
   }
   if(shootOn()){
+    linkSync();
     if(!draft.cond){errFields.cond=1;ok=false;}
-    else if(draft.cond===COND_BAD&&!draft.condParts.length){errFields.cond=2;ok=false;}
+    else if(draft.cond===COND_BAD){
+      var noPlace=photoProbs().filter(function(p){return !(draft.condPlaces[p]||[]).length;});
+      if(!draft.condProblems.length){errFields.cond='何があるか、1 つ以上選んでください';ok=false;}
+      else if(noPlace.length){errFields.cond='「'+PROB_LABEL[noPlace[0]]+'」の場所を選んでください';ok=false;}
+      else if(draft.condProblems.indexOf('missing')>=0&&!draft.missingParts.length){errFields.cond='足りない物を 1 つ以上選んでください';ok=false;}
+    }
     // 正面 2 枚では足りない。枠ごとに 1 枚以上あるかを見る
     if(missSlots().length){errFields.slots=1;ok=false;}
-    if(!draft.ship&&!draft.shipOdd){errFields.ship=1;ok=false;}
+    // 汚れ・傷・破れやこわれは、問題ごとに写真が 1 枚以上要る
+    else if(unlinked().length){errFields.slots='「'+unlinked().map(function(p){return PROB_LABEL[p];}).join('」「')+'」が写っている写真がありません。写真の横で選ぶか、もう 1 枚撮ってください';ok=false;}
+    if(!draft.shipClass&&!draft.shipIrregular){errFields.shipClass=1;ok=false;}
   }
   return ok;
 }
@@ -850,7 +919,7 @@ function rowTooBig(o){
   return shown&&len>20?{f:best[1],msg:best[2]+'が長すぎます。短くしてください'}:{f:'note',msg:'この商品の記録が大きすぎて保存できません。担当者に伝えてください'};
 }
 function commit(mode){ // mode: save | absent | later。保存できたら true
-  qtySync();
+  qtySync();linkSync();
   var k=draftKey,prev=ST.results[k]||{},o=slim(Object.assign({},prev,draft));
   if(mode==='absent'){o.absent=true;o.qty=0;o.skipped=false;o.checkedAt=nowISO();}
   else if(mode==='later'){o.skipped=true;o.checkedAt=nowISO();}
@@ -902,7 +971,7 @@ function toJpeg(img,max,q){
   return cv.toDataURL('image/jpeg',q);
 }
 function b64Bytes(dataUrl){var b=dataUrl.slice(dataUrl.indexOf(',')+1);return Math.floor(b.length*3/4);}
-async function addImages(files,sl){ // sl: 写真の枠（無ければメモ用）
+async function addImages(files,sl,p){ // sl: 写真の枠（無ければメモ用）。p: 傷の枠で、この写真に写す問題
   var k=draftKey,d=draft,it=ST.byKey[k],i;
   // 1 行の写真は 12 枚まで（窓口も 13 枚目を受け取らない）。超える分は読み込まない
   var room=Math.max(0,PHOTO_MAX-draft.images.length-imgPending);
@@ -922,7 +991,7 @@ async function addImages(files,sl){ // sl: 写真の枠（無ければメモ用�
       do{ name=it['PKGI']+'_'+it['行']+'_'+n+'.jpg'; n++; }while(IMG[name]||draft.images.indexOf(name)>=0);
       IMG[name]={d:data,p:false};
       draft.images.push(name);
-      if(sl)draft.slots[name]=sl;
+      if(sl)draft.slots[name]=sl+(sl==='d'&&p?':'+p:'');
     }catch(e){toast('画像の読み込みに失敗しました','ng');}
     imgPending=Math.max(0,imgPending-1);
   }
@@ -931,7 +1000,7 @@ async function addImages(files,sl){ // sl: 写真の枠（無ければメモ用�
 
 /* ---------- CSV 書き出し ---------- */
 function buildExportCSV(){
-  var head=['月','箱','袋','行','PKGI','商品名','task名','元数量','現物数量','現物なし','候補で合っている','参考URL(現場入力)','色','サイズ','版・SKU','セット内容','賞味期限','保管状態','状態','在庫ラベル','画像ファイル名','メモ','あとで','確認日時','気になること','同じ商品の合計で数えた','商品の状態','気になる所','箱に入れたときの大きさ','重い・形が箱に収まらない','色が分かりにくい','写真の枠'];
+  var head=['月','箱','袋','行','PKGI','商品名','task名','元数量','現物数量','現物なし','候補で合っている','参考URL(現場入力)','色','サイズ','版・SKU','セット内容','賞味期限','保管状態','状態','在庫ラベル','画像ファイル名','メモ','あとで','確認日時','気になること','同じ商品の合計で数えた','商品の状態','状態の内訳','足りない付属品','箱に入れたときの大きさ','重い・形が箱に収まらない','色が分かりにくい','写真の枠'];
   var rows=[head];
   ST.items.forEach(function(it){
     var r=ST.results[it._key]||{};
@@ -944,8 +1013,13 @@ function buildExportCSV(){
       r.refUrl||'',r.color||'',r.size||'',r.edition||'',r.setContents||'',r.expiry||'',
       r.storage||'',r.condition||'',r.hasLabel||'',(r.images||[]).join(';'),r.note||'',
       r.skipped===true?'はい':'', r.checkedAt||'',(r.issues||[]).join(';'),r.qtyScope==='box'?'はい':'',
-      r.cond||'',(r.condParts||[]).join(';'),SHIP_LABEL[r.ship]||'',r.shipOdd===true?'はい':'',r.colorHard===true?'はい':'',
-      (r.images||[]).filter(function(n){return r.slots&&r.slots[n];}).map(function(n){return n+'='+slotName(r.slots[n]);}).join(';')
+      COND_LABEL[r.cond]||r.cond||'',
+      (r.condProblems||[]).map(function(p){var a=(r.condPlaces||{})[p]||[];return (PROB_LABEL[p]||p)+(a.length?'（'+a.map(function(x){return PLACE_LABEL[x]||x;}).join('・')+'）':'');}).join(';'),
+      (r.missingParts||[]).map(function(x){return MISSING_LABEL[x]||x;}).join(';'),
+      SHIP_LABEL[r.shipClass||r.ship]||'',(r.shipIrregular===true||r.shipOdd===true)?'はい':'',r.colorHard===true?'はい':'',
+      (r.images||[]).filter(function(n){return r.slots&&r.slots[n];}).map(function(n){
+        var ls=linksIn(r.slots[n]).map(function(p){return PROB_LABEL[p]||p;});
+        return n+'='+slotName(r.slots[n])+(ls.length?'（'+ls.join('・')+'）':'');}).join(';')
     ]);
   });
   var csv=rows.map(function(r){return r.map(function(c){return '"'+String(c==null?'':c).replace(/"/g,'""')+'"';}).join(',');}).join('\r\n')+'\r\n';
@@ -1302,10 +1376,16 @@ document.addEventListener('click',function(e){
   else if(act==='imgdel'){
     var i=draft.images.indexOf(v);if(i>=0)draft.images.splice(i,1);if(draft.slots)delete draft.slots[v];saveDraft();redraw();
   }
-  else if(act==='cpart'){
-    var ci=draft.condParts.indexOf(v);if(ci>=0)draft.condParts.splice(ci,1);else draft.condParts.push(v);saveDraft();renderCard(true);
+  else if(act==='cprob'||act==='cmiss'||act==='cplace'){
+    var cp0=t.getAttribute('data-p'),ca=act==='cprob'?draft.condProblems:(act==='cmiss'?draft.missingParts:(draft.condPlaces[cp0]=draft.condPlaces[cp0]||[]));
+    var ci=ca.indexOf(v);if(ci>=0)ca.splice(ci,1);else ca.push(v);saveDraft();renderCard(true);
   }
-  else if(act==='shipodd'){draft.shipOdd=!draft.shipOdd;saveDraft();renderCard(true);}
+  else if(act==='plink'){
+    var pl0=linksOf(v),pp0=t.getAttribute('data-p'),pi=pl0.indexOf(pp0);
+    if(pi>=0)pl0.splice(pi,1);else pl0.push(pp0);
+    setLinks(v,PROB_PHOTO.filter(function(p){return pl0.indexOf(p)>=0;}));saveDraft();renderCard(true);
+  }
+  else if(act==='shipodd'){draft.shipIrregular=!draft.shipIrregular;saveDraft();renderCard(true);}
   else if(act==='chard'){draft.colorHard=!draft.colorHard;saveDraft();renderCard(true);}
   else if(act==='boxhelp'){openBoxHelp();}
   else if(act==='bhreason'){if(bh){bh.reason=(bh.reason===v)?'':v;renderBoxHelp();}}
@@ -1382,7 +1462,7 @@ document.addEventListener('toggle',function(e){if(e.target.classList&&e.target.c
 document.addEventListener('change',function(e){
   var t=e.target;
   if(t.id==='ft'){ST.filters.task=t.value;updateHome();return;}
-  if(t.getAttribute&&t.getAttribute('data-act')==='imgadd'&&t.files&&t.files.length){addImages(Array.prototype.slice.call(t.files),t.getAttribute('data-slot')||'');t.value='';}
+  if(t.getAttribute&&t.getAttribute('data-act')==='imgadd'&&t.files&&t.files.length){addImages(Array.prototype.slice.call(t.files),t.getAttribute('data-slot')||'',t.getAttribute('data-p')||'');t.value='';}
 });
 var _qT=null;
 document.addEventListener('input',function(e){
