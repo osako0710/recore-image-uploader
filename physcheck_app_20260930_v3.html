@@ -1057,6 +1057,15 @@ function colorParts(s){ // 「青×1・黄×2」→ [{c:'青',n:1},{c:'黄',n:2}
   if(ps.length>=2&&ps.some(function(p){return p.n==null;}))return [{c:String(s).trim(),n:null}];
   return ps;
 }
+function colorAdd(ps,v,qty){ // 色を 1 つ足す。いまある 1 色には、残りの数を入れる
+  if(ps.length===1&&ps[0].n==null){
+    // 区切りを含む古い色名は、足したあとに別の色へ割れないよう置き換える
+    ps[0].c=ps[0].c.replace(/・/g,'／').replace(/×/g,'x');
+    ps[0].n=Math.max(1,qty-1);
+  }
+  ps.push({c:v,n:ps.length?1:null});
+  return ps;
+}
 function colorJoin(ps){
   if(ps.length<2)return ps.length?ps[0].c:'';
   return ps.map(function(p){return p.c+'×'+(p.n==null?0:p.n);}).join('・');
@@ -1164,10 +1173,7 @@ document.addEventListener('click',function(e){
     var ps=colorParts(draft.color),ix=-1;
     ps.forEach(function(p,i){if(p.c===v)ix=i;});
     if(ix>=0)ps.splice(ix,1);
-    else{
-      if(ps.length===1&&ps[0].n==null)ps[0].n=Math.max(1,num(draft.qty,1)-1);
-      ps.push({c:v,n:ps.length?1:null});
-    }
+    else colorAdd(ps,v,num(draft.qty,1));
     if(ps.length===1)ps[0].n=null;
     setColorParts(ps);saveDraft();renderCard(true);
   }

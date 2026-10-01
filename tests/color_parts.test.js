@@ -14,7 +14,7 @@ function pick(name){
   }
   throw new Error('関数の終わりが見つかりません: '+name);
 }
-var names=['colorParts','colorJoin','colorSum'];
+var names=['colorParts','colorAdd','colorJoin','colorSum'];
 var app=new Function(names.map(pick).join('\n')+'\nreturn {'+names.map(function(n){return n+':'+n;}).join(',')+'};')();
 
 test('色ごとの数が付いた値は色ごとに分かれる',function(){
@@ -32,6 +32,16 @@ test('「×数」の無い部分が混じる値は、分けずに 1 つの色名
   assert.deepStrictEqual(app.colorParts('黒・白'),[{c:'黒・白',n:null}]);
   assert.deepStrictEqual(app.colorParts('青×1・黒'),[{c:'青×1・黒',n:null}]);
   assert.strictEqual(app.colorJoin(app.colorParts('黒・白')),'黒・白');
+});
+
+test('区切りを含む古い色名に色を足しても、開き直して 2 色のままで合計が変わらない',function(){
+  var saved=app.colorJoin(app.colorAdd(app.colorParts('青×2・黄'),'赤',5));
+  assert.strictEqual(saved,'青x2／黄×4・赤×1');
+  assert.strictEqual(app.colorParts(saved).length,2);
+  assert.strictEqual(app.colorSum(app.colorParts(saved)),5);
+  // 区切りを含まない色名は、そのまま足す
+  assert.strictEqual(app.colorJoin(app.colorAdd(app.colorParts('えんじ'),'赤',3)),'えんじ×2・赤×1');
+  assert.strictEqual(app.colorJoin(app.colorAdd([],'赤',1)),'赤');
 });
 
 var COLORS=JSON.parse(/var COLORS=(\[[^\]]+\])/.exec(html)[1].replace(/'/g,'"'));
