@@ -177,7 +177,8 @@ var issKey=null;        // 要確認の一覧から開いたカード（保存�
 var issOpen=false;      // 「困ったことがある」を開いているか
 var imgPending=0;       // 読み込み中の写真の枚数
 var CTX=null;           // {boxes:{箱:[[行,商品名,点数,種別]]},same:{key:{box,sum,on,other}}}
-var bh=null;            // 「この箱が分からないとき」の入力 {box,reason,err}
+var bh=null;            // 「この箱が分からないとき」の入力 {box,reason,err,old}
+var qtyAuto=false;      // 数量が初期値のまま（作業者がまだ触っていない）
 
 /* ---------- utils ---------- */
 function $(s){return document.querySelector(s);}
@@ -396,7 +397,7 @@ function renderBox(){
   else if(st.later===st.remain)h.push('<div class="donebox hold">この箱は保留中です（担当者が確認します）</div><button class="scanbtn" data-act="scan">📷 次の箱を読み取る</button>'+
     '<div class="btns"><button class="btn sm" data-act="start">保留にした商品を確認する</button></div>');
   else{
-    if(rest.length)h.push('<div class="note" style="margin-top:0">この箱には、確認しなくてよい物も '+rest.length+' 件入っています。<b>確認するのは下の '+st.total+' 件だけです</b></div>');
+    if(rest.length)h.push('<div class="note" style="margin-top:0">この箱には、確認しなくてよい物も '+rest.length+' 件入っています。<b>'+(st.total===b.rows.length?'確認するのは下の '+st.total+' 件だけです':'確認する物は全部で '+b.rows.length+' 件です（絞り込み中のため、下には '+st.total+' 件だけ出ています）')+'</b></div>');
     h.push('<div class="btns"><button class="btn pri" data-act="start">この箱の確認を始める</button></div>');
   }
   h.push('<div class="sec">未完了 '+st.remain+' 件'+(ST.showDone?'（確認済みも表示中）':'')+'</div>');
@@ -423,20 +424,39 @@ function qtyDefault(k){
   var it=ST.byKey[k],s=sameBox(k);
   if(!s)return it._qty0;
   // 同じ名前の別の行をすでに合計で数えていたら、その数を初期値にする
+  var c=sameCounted(k);
+  return c!=null?c:num(s.sum,it._qty0);
+}
+function sameCounted(k){ // 同じ箱の同じ名前の別の行で、合計として保存済みの数（無ければ null）
+  var it=ST.byKey[k],s=sameBox(k);
+  if(!s)return null;
   var rows=ST.boxMap[it['箱']].rows;
   for(var i=0;i<rows.length;i++){
     var kk=rows[i]._key,r=ST.results[kk];
     if(kk!==k&&s.box.indexOf(num(rows[i]['行'],-1))>=0&&r&&r.qtyScope==='box'&&r.absent!==true&&isDone(kk))return num(r.qty,s.sum);
   }
-  return num(s.sum,it._qty0);
+  return null;
+}
+function isBoxTag(v){return String(v).indexOf(BOX_TAG)===0;}
+// 箱ごと確認の写真は 1 行にだけ付く。同じ箱のほかの保留行からも見えるようにする
+function boxPhotos(k){
+  var r=ST.results[k],it=ST.byKey[k],b=ST.boxMap[it['箱']],own=(draft&&draftKey===k)?draft.images:((r&&r.images)||[]),out=[];
+  if(!r||!b||!(r.issues||[]).some(isBoxTag))return out;
+  b.rows.forEach(function(x){
+    var o=ST.results[x._key];
+    if(x._key===k||!o||!(o.issues||[]).some(isBoxTag))return;
+    (o.images||[]).forEach(function(n){if(own.indexOf(n)<0&&out.indexOf(n)<0)out.push(n);});
+  });
+  return out;
 }
 var BOX_TAG='箱ごと確認：';
 var BOX_REASONS=['サイズ・柄がバラバラ','一覧にない物が入っている','どれがどの商品か分からない','その他'];
 function boxTodo(b){return b.rows.filter(function(x){return !isDone(x._key);});}
-function openBoxHelp(){
+function bhNew(){return draft.images.filter(function(n){return bh.old.indexOf(n)<0;});} // この画面で撮った写真
+function openBoxHelp(keep){
   var b=ST.boxMap[ST.boxId],rs=b?boxTodo(b):[];
   if(!rs.length){toast('この箱に未確認の商品はありません','warn');return;}
-  startDraft(rs[0]._key);bh={box:b.id,reason:'',err:false};ST.view='boxhelp';render();window.scrollTo(0,0);
+  startDraft(rs[0]._key);bh={box:b.id,reason:(typeof keep==='string'?keep:''),err:false,old:draft.images.slice()};ST.view='boxhelp';render();window.scrollTo(0,0);
 }
 function renderBoxHelp(){
   var b=ST.boxMap[bh&&bh.box];
@@ -444,8 +464,8 @@ function renderBoxHelp(){
   setHead(b.id,true);
   var n=boxTodo(b).length,h=[];
   h.push('<div class="q"><div class="qq">箱の中身を全部並べて、写真を撮ってください</div><div class="pt">文字は書かなくて大丈夫です。担当者が写真を見て確認します</div></div>');
-  h.push('<div class="fld'+(bh.err&&!draft.images.length?' err':'')+'" data-fld="photo"><div class="lb">箱の中身の写真<span class="req">必須</span></div>'+
-    photoHTML('＋ 写真を撮る / 選ぶ')+'<div class="emsg">写真を 1 枚以上撮ってください</div></div>');
+  h.push('<div class="fld'+(bh.err&&!bhNew().length?' err':'')+'" data-fld="photo"><div class="lb">箱の中身の写真<span class="req">必須</span></div>'+
+    photoHTML('＋ 写真を撮る / 選ぶ')+'<div class="emsg">箱の中身を並べた写真を、ここで 1 枚撮ってください</div></div>');
   h.push('<div class="fld'+(bh.err&&!bh.reason?' err':'')+'" data-fld="reason"><div class="lb">分からないこと<span class="req">必須</span></div>'+
     '<div class="chips">'+BOX_REASONS.map(function(v){
       return '<button class="chip sm'+(bh.reason===v?' on':'')+'" data-act="bhreason" data-v="'+esc(v)+'">'+esc(v)+'</button>';}).join('')+'</div>'+
@@ -456,16 +476,24 @@ function renderBoxHelp(){
   $('#app').innerHTML=h.join('');
 }
 function commitBoxHelp(){
-  var b=ST.boxMap[bh.box],tag=BOX_TAG+bh.reason,now=nowISO(),k0=draftKey;
-  boxTodo(b).forEach(function(x){
+  var b=ST.boxMap[bh.box],tag=BOX_TAG+bh.reason,now=nowISO(),k0=draftKey,todo=boxTodo(b);
+  if(!todo.some(function(x){return x._key===k0;})){
+    // 写真を付ける行が、ほかの端末で確認済みになった。写真を失わないよう、残りの行で撮り直してもらう
+    var why=bh.reason;draftKey=null;bh=null;ST.view='box';
+    if(todo.length){openBoxHelp(why);toast('ほかの端末でこの箱が更新されました。もう一度、写真を撮ってください','warn');}
+    else{render();toast('この箱は、ほかの端末で確認が終わっていました','warn');}
+    return false;
+  }
+  todo.forEach(function(x){
     var k=x._key,o=Object.assign({},ST.results[k]||{});
-    if(k===k0)Object.assign(o,draft); // 箱の写真は残りの先頭の行に付ける
+    if(k===k0)Object.assign(o,draft); // 箱の写真は、この画面を開いたときの先頭の行に付ける
     o.issues=(o.issues||[]).filter(function(v){return v.indexOf(BOX_TAG)!==0;}).concat([tag]);
     o.skipped=true;o.checkedAt=now;
     ST.results[k]=o;enqueue(k);
   });
   persist(true);flush();
   draftKey=null;bh=null;ST.view='box';render();window.scrollTo(0,0);
+  return true;
 }
 function redraw(){if(ST.view==='boxhelp')renderBoxHelp();else renderCard(true);}
 
@@ -473,6 +501,7 @@ function redraw(){if(ST.view==='boxhelp')renderBoxHelp();else renderCard(true);}
 function startDraft(k){
   var r=ST.results[k]||{},it=ST.byKey[k];
   draftKey=k;errFields={};issOpen=false;
+  qtyAuto=!(r.qty===0||r.qty);
   draft={
     qty:(r.qty===0||r.qty)?r.qty:qtyDefault(k),
     absent:r.absent===true?true:(r.absent===false?false:undefined),
@@ -488,6 +517,8 @@ function saveDraft(){ // 入力のたびの自動保存（完了にはしない�
   var prev=ST.results[draftKey]||{};
   if(prev.checkedAt)return; // 保存済みの行は「保存」を押すまで書き換えない（押さずに離れた変更を送らない）
   var o=Object.assign({},prev,draft);
+  // 触っていない数量は下書きに残さない（箱の中身の一覧が後から届いたら、初期値を出し直す）
+  if(qtyAuto&&!(prev.qty===0||prev.qty))delete o.qty;
   o.checkedAt=prev.checkedAt||null;
   o.skipped=prev.skipped===true;
   ST.results[draftKey]=o;
@@ -585,17 +616,23 @@ function renderCard(keepScroll){
     ((isDone(k)||isSkipped(k))?'<div class="mt" style="margin-top:6px">'+(isDone(k)?'<span class="tag dn">確認済み（修正する場合は入力し直して保存）</span>':'')+(isSkipped(k)?'<span class="tag later">保留</span>':'')+'</div>':'')+
     (it['参考URL']?'<div class="mt" style="margin-top:6px"><a href="'+esc(it['参考URL'])+'" target="_blank" rel="noopener">参考ページを開く</a></div>':'')+'</div>');
   var sm=ctxSame(draftKey);
-  if(sameBox(draftKey))h.push('<div class="note">同じ名前の商品が、この箱に '+(sm.box.length+1)+' 件に分かれて登録されています（合計 '+esc(sm.sum)+' 点）。<b>箱の中のこの商品を全部数えて、合計を入れてください</b></div>');
-  if(sm&&sm.other&&sm.other.length){
-    var ob=sm.other.slice(0,3).map(function(x){return esc(x[0]);}).join('、'),on=num(sm.on,sm.other.length);
+  if(sameBox(draftKey))h.push('<div class="note">同じ名前の商品が、この箱に '+(sm.box.length+1)+' 件に分かれて登録されています（合計 '+esc(sm.sum)+' 点）。<b>箱の中のこの商品を全部数えて、合計を入れてください</b>'+
+    (sameCounted(draftKey)!=null?'<br>同じ名前の別の行で、合計 '+esc(sameCounted(draftKey))+' 点と数え済みです。数が同じなら、そのまま保存してください':'')+'</div>');
+  // 出荷済みの箱（もう現物が無いはず）は案内に出さない
+  var oth=((sm&&sm.other)||[]).filter(function(x){return x[1]!=='gone';});
+  if(oth.length){
+    var ob=oth.slice(0,3).map(function(x){return esc(x[0]);}).join('、'),on=Math.max(oth.length,num(sm.on,0)-(sm.other.length-oth.length));
     h.push('<div class="note">同じ名前の商品が別の箱にもあります（'+ob+(on>3?' ほか '+(on-3)+' 箱':'')+'）。<b>この箱の分だけ数えてください。箱から出して、ほかの箱とまとめないでください</b></div>');
   }
+  var bp=boxPhotos(k);
+  if(bp.length)h.push('<div class="fld"><div class="lb">箱の中身の写真（箱ごと確認で撮った分）</div><div class="thumbs" style="margin-top:0">'+bp.map(function(n){
+    return '<div class="thumb"><img src="'+esc(imgSrc(n))+'" alt=""></div>';}).join('')+'</div></div>');
   activeFields().forEach(function(tk){h.push(fldHTML(tk));});
   if(issOpen||draft.issues.length){
     h.push('<div class="fld"><div class="lb">困ったこと・気になること<span class="opt">任意</span></div>'+
       '<div class="chips">'+ISSUES.concat(draft.issues.filter(function(v){return ISSUES.indexOf(v)<0;})).map(function(v){
         return '<button class="chip sm'+(draft.issues.indexOf(v)>=0?' on':'')+'" data-act="issue" data-v="'+esc(v)+'">'+esc(v)+'</button>';}).join('')+'</div>'+
-      '<div class="hint">'+(draft.issues.indexOf(ISSUE_MIX)>=0?'全部並べて 1 枚、タグを 1 枚撮ってください。文字は書かなくて大丈夫です':'迷ったら選んでください。担当者があとで確認します')+'</div></div>');
+      '<div class="hint">'+(draft.issues.indexOf(ISSUE_MIX)>=0?'全部並べた写真を 1 枚撮ってください。タグが読めないときは、タグも撮ってください。文字は書かなくて大丈夫です':'迷ったら選んでください。担当者があとで確認します')+'</div></div>');
   }else{
     h.push('<button class="chip sm" style="align-self:flex-start;margin:4px 0" data-act="issopen">困ったことがある ▾</button>');
   }
@@ -908,7 +945,7 @@ function colorJoin(ps){
 }
 function setColorParts(ps){ // 2 色以上なら合計を現物数量に入れる
   draft.color=colorJoin(ps);
-  if(ps.length>=2)draft.qty=ps.reduce(function(a,p){return a+(p.n||0);},0);
+  if(ps.length>=2){draft.qty=ps.reduce(function(a,p){return a+(p.n||0);},0);qtyAuto=false;}
 }
 function normCode(s){ // 小文字・空白・ハイフン抜け・桁不足を CSV の表記（BU-/PKG-/PKGI- + 8桁）に揃える
   s=String(s).toUpperCase().replace(/\s+/g,'');
@@ -992,7 +1029,7 @@ document.addEventListener('click',function(e){
   else if(act==='tobox'){ST.view='box';ST.boxId=ST.byKey[ST.cardKey]['箱'];draftKey=null;render();}
   else if(act==='q-'||act==='q+'){
     if(colorParts(draft.color).length>=2)return;
-    draft.qty=Math.max(0,num(draft.qty,0)+(act==='q+'?1:-1));saveDraft();renderCard(true);
+    draft.qty=Math.max(0,num(draft.qty,0)+(act==='q+'?1:-1));qtyAuto=false;saveDraft();renderCard(true);
   }
   else if(act==='pres'){
     if(v==='no'){draft.absent=true;draft.qty=0;commit('absent');toast('現物なしで保存','ok');gotoNext();return;}
@@ -1031,9 +1068,9 @@ document.addEventListener('click',function(e){
   else if(act==='bhcancel'){bh=null;draftKey=null;ST.view='box';render();}
   else if(act==='boxhelpok'){
     if(!bh||!draft)return;
-    if(!draft.images.length||!bh.reason){bh.err=true;renderBoxHelp();toast('写真と「分からないこと」を入れてください','ng');
+    if(!bhNew().length||!bh.reason){bh.err=true;renderBoxHelp();toast('写真と「分からないこと」を入れてください','ng');
       var be=document.querySelector('.fld.err');if(be)be.scrollIntoView({block:'center'});return;}
-    commitBoxHelp();toast('担当者に回しました。次の箱へ進んでください','ok');
+    if(commitBoxHelp())toast('担当者に回しました。次の箱へ進んでください','ok');
   }
   else if(act==='save'){
     if(!validate()){renderCard(true);toast('必須項目が未入力です','ng');
@@ -1103,6 +1140,7 @@ document.addEventListener('input',function(e){
   }
   if(!k||!draft)return;
   draft[k]=(k==='qty')?num(t.value,0):t.value;
+  if(k==='qty')qtyAuto=false;
   saveDraft();
   var f=t.closest('.fld');if(f)f.classList.remove('err');
 });
@@ -1148,6 +1186,8 @@ function showIntro(){
     fetch(CTX_URL+'?t='+Date.now()).then(function(r){return r.ok?r.json():null;}).then(function(j){
       if(!j||typeof j!=='object')return;
       CTX=j;
+      // 開いているカードの数量がまだ初期値なら、合計の案内に合わせて出し直す（個別の数のまま合計として保存しない）
+      if(draftKey&&draft&&qtyAuto&&draft.absent!==true)draft.qty=qtyDefault(draftKey);
       if(ST.view==='card')renderCard(true); else render();
     }).catch(function(){});
   }).catch(function(){fallbackUI();});
