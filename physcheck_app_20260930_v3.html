@@ -151,7 +151,7 @@ var SIZES=['S','M','L','XL','F','その他'];
 var STORAGES=['常温良好','高温多湿あり','液漏れ・膨張','不明'];
 var CONDITIONS=['未開封','開封済み未使用','使用感あり','傷・欠品'];
 var LABELS=['あり','なし'];
-var FIELD_LABEL={qty:'現物数量',presence:'現物の有無',photo:'写真',candidate:'候補の一致',url:'参考URL（現場で見つけたら）',color:'色',size:'サイズ',edition:'版・種類・SKU',set:'セット内容（何が何個）',expiry:'賞味期限',storage:'保管状態',condition:'状態',label:'在庫ラベルの有無'};
+var FIELD_LABEL={qty:'現物数量',presence:'現物の有無',photo:'写真',candidate:'候補の商品と同じか',url:'参考URL（見つかった場合）',color:'色',size:'サイズ',edition:'種類・型番',set:'セット内容（何が何個）',expiry:'賞味期限',storage:'保管状態',condition:'状態',label:'在庫ラベルの有無'};
 
 var ST={items:[],byKey:{},boxes:[],boxMap:{},results:{},view:'home',boxId:null,cardKey:null,
         filters:{month:'',task:'',q:''},showDone:false,loaded:false};
@@ -227,7 +227,7 @@ function persist(now){
   if(!now){_saveT=setTimeout(function(){_saveT=null;persist(true);},250);return;}
   try{
     localStorage.setItem(LS_KEY,JSON.stringify({version:3,updatedAt:nowISO(),results:ST.results}));
-  }catch(e){toast('保存に失敗（容量超過の可能性）','ng');}
+  }catch(e){toast('保存できませんでした（端末の空き容量が不足している可能性があります）','ng');}
   try{
     localStorage.setItem(LS_IMG,JSON.stringify(IMG));
   }catch(e){
@@ -297,13 +297,13 @@ function nf(n){return n.toLocaleString('en-US');}
 function renderHome(){
   setHead('現物確認',false);
   var h=[];
-  h.push('<button class="scanbtn" data-act="scan">📷 箱のバーコードを読む</button>');
+  h.push('<button class="scanbtn" data-act="scan">📷 箱のバーコードを読み取る</button>');
   h.push('<div class="prog" id="prog"></div>');
   h.push('<details class="flt"'+(ST.fltOpen?' open':'')+'><summary>⚙ 絞り込み</summary>');
   h.push('<div class="sec">月</div><div class="chips" id="fm"></div>');
   h.push('<div class="sec">確認の種類</div><div class="chips" id="ft"></div>');
-  h.push('<div class="sec">検索（商品名・箱・行）</div><input type="search" id="q" placeholder="例: ジャケット / BU-0073" value="'+esc(ST.filters.q)+'">');
-  h.push('<div class="sw"><b>完了も表示</b><button class="chip'+(ST.showDone?' on':'')+'" id="tgdone" data-act="tgdone">'+(ST.showDone?'ON':'OFF')+'</button></div>');
+  h.push('<div class="sec">商品名・箱番号で検索</div><input type="search" id="q" placeholder="例: ジャケット / BU-0073" value="'+esc(ST.filters.q)+'">');
+  h.push('<div class="sw"><b>確認済みも表示</b><button class="chip'+(ST.showDone?' on':'')+'" id="tgdone" data-act="tgdone">'+(ST.showDone?'ON':'OFF')+'</button></div>');
   h.push('</details>');
   h.push('<div class="sec" id="boxhead"></div><div class="boxlist" id="boxlist"></div>');
   $('#app').innerHTML=h.join('');
@@ -331,16 +331,16 @@ function updateHome(){
     if(!done)nRemainBox++;
     if(done&&!ST.showDone)return;
     list.push('<button class="box'+(done?' done':'')+'" data-act="box" data-v="'+esc(b.id)+'">'+
-      '<div class="l"><b>'+esc(b.id)+'</b>'+(st.later?'<span class="sub" style="color:#8a5a00">あとで '+st.later+'</span>':'')+'</div>'+
+      '<div class="l"><b>'+esc(b.id)+'</b>'+(st.later?'<span class="sub" style="color:#8a5a00">保留 '+st.later+'</span>':'')+'</div>'+
       '<div class="r">'+(done?'<b>完了</b>':'<b>'+st.remain+'</b>/'+st.total)+'</div></button>');
   });
-  $('#boxhead').innerHTML='残っている箱 '+nf(nRemainBox);
+  $('#boxhead').innerHTML='未完了の箱 '+nf(nRemainBox);
   $('#boxlist').innerHTML=list.length?list.join(''):'<div class="empty">該当する箱はありません</div>';
 }
 
 function rowHTML(it){
   var k=it._key,d=isDone(k),sk=isSkipped(k),r=ST.results[k];
-  var badge=d?'<span class="tag dn">'+(r&&r.absent?'現物なし':'完了')+'</span>':(sk?'<span class="tag later">あとで</span>':'');
+  var badge=d?'<span class="tag dn">'+(r&&r.absent?'現物なし':'確認済み')+'</span>':(sk?'<span class="tag later">保留</span>':'');
   return '<button class="row'+(d?' done':'')+'" data-act="card" data-v="'+esc(k)+'">'+
     '<div class="l"><div class="mt">'+badge+'行'+esc(it['行'])+'</div>'+
     '<div class="nm">'+esc(it['商品名'])+'</div></div>'+
@@ -353,11 +353,11 @@ function renderBox(){
   h.push('<div class="prog"><div class="t">残り <b>'+st.remain+'</b> / 全 '+st.total+'</div>'+
     '<div class="bar"><i style="width:'+(st.total?Math.round((st.total-st.remain)/st.total*100):0)+'%"></i></div>'+
     '</div>');
-  if(st.remain===0)h.push('<div class="sec"></div><div class="donebox">この箱は完了しました 🎉</div>');
-  else h.push('<div class="btns"><button class="btn pri" data-act="start">この箱を最初から順に</button></div>');
-  h.push('<div class="sec">未完了 '+st.remain+' 件'+(ST.showDone?'（完了も表示中）':'')+'</div>');
+  if(st.remain===0)h.push('<div class="sec"></div><div class="donebox">この箱の確認が完了しました</div>');
+  else h.push('<div class="btns"><button class="btn pri" data-act="start">この箱の確認を始める</button></div>');
+  h.push('<div class="sec">未完了 '+st.remain+' 件'+(ST.showDone?'（確認済みも表示中）':'')+'</div>');
   var list=rows.filter(function(it){return ST.showDone||!isDone(it._key);}).map(rowHTML);
-  h.push(list.length?list.join(''):'<div class="empty">表示する行はありません</div>');
+  h.push(list.length?list.join(''):'<div class="empty">表示する商品はありません</div>');
   $('#app').innerHTML='<div style="display:flex;flex-direction:column;gap:8px">'+h.join('')+'</div>';
 }
 
@@ -406,7 +406,7 @@ function fldHTML(tk){
   }else if(n==='qty'){
     body='<div class="qty"><button class="qbtn" data-act="q-">−</button>'+
          '<input type="number" inputmode="numeric" pattern="[0-9]*" data-k="qty" value="'+esc(draft.qty)+'">'+
-         '<button class="qbtn" data-act="q+">＋</button></div><div class="hint">帳簿上 '+esc(it['元数量'])+' 点</div>';
+         '<button class="qbtn" data-act="q+">＋</button></div><div class="hint">登録数 '+esc(it['元数量'])+' 点</div>';
   }else if(n==='photo'){
     var th=draft.images.map(function(nm){
       return '<div class="thumb"><img src="'+esc(imgSrc(nm))+'" alt=""><button data-act="imgdel" data-v="'+esc(nm)+'">×</button></div>';}).join('');
@@ -417,9 +417,9 @@ function fldHTML(tk){
     body='<div class="cand">'+(ct?'<div><b>'+esc(ct)+'</b></div>':'')+
       (cu?'<div><a href="'+esc(cu)+'" target="_blank" rel="noopener">'+esc(cu)+'</a></div>':'<div>候補URLなし</div>')+
 '</div>'+
-      '<div class="two" style="margin-top:8px"><button class="big yes'+(draft.candidateOk===true?' on':'')+'" data-act="cand" data-v="1">合っている</button>'+
+      '<div class="two" style="margin-top:8px"><button class="big yes'+(draft.candidateOk===true?' on':'')+'" data-act="cand" data-v="1">同じ</button>'+
       '<button class="big no'+(draft.candidateOk===false?' on':'')+'" data-act="cand" data-v="0">違う</button></div>'+
-      (draft.candidateOk===false?'<div class="hint">違う場合は 参考URL と 写真 が必須です</div>':'');
+      (draft.candidateOk===false?'<div class="hint">違う場合は、参考URLと写真を入力してください</div>':'');
   }else if(n==='url'){
     body='<input type="url" inputmode="url" data-k="refUrl" placeholder="https://" value="'+esc(draft.refUrl)+'">';
   }else if(n==='color'||n==='size'){
@@ -428,7 +428,7 @@ function fldHTML(tk){
       return '<button class="chip'+(draft[key]===v?' on':'')+'" data-act="chip" data-k="'+key+'" data-v="'+esc(v)+'">'+esc(v)+'</button>';}).join('')+'</div>'+
       '<input type="text" data-k="'+key+'" style="margin-top:8px" placeholder="自由入力" value="'+esc(draft[key])+'">';
   }else if(n==='edition'){
-    body='<input type="text" data-k="edition" placeholder="版・種類・SKU" value="'+esc(draft.edition)+'">';
+    body='<input type="text" data-k="edition" placeholder="例: 限定版 / 型番" value="'+esc(draft.edition)+'">';
   }else if(n==='set'){
     body='<input type="text" data-k="setContents" placeholder="例: 本体1＋替刃3" value="'+esc(draft.setContents)+'">';
   }else if(n==='expiry'){
@@ -449,22 +449,22 @@ function renderCard(keepScroll){
   if(draftKey!==k)startDraft(k);
   var sc=keepScroll?window.scrollY:0;
   var b=ST.boxMap[it['箱']],rows=boxRows(b),idx=rows.map(function(x){return x._key;}).indexOf(k);
-  setHead(it['箱']+' ・ 行'+it['行'],true);
+  setHead(it['箱']+' ・ No.'+it['行'],true);
   var h=[];
-  h.push('<div class="q"><div class="qq">'+esc(it['質問'])+'</div>'+(it['見るポイント']?'<div class="pt">見るポイント: '+esc(it['見るポイント'])+'</div>':'')+'</div>');
+  h.push('<div class="q"><div class="qq">'+esc(it['質問'])+'</div>'+(it['見るポイント']?'<div class="pt">確認する点: '+esc(it['見るポイント'])+'</div>':'')+'</div>');
   h.push('<div class="meta"><div class="nm">'+esc(it['商品名'])+'</div>'+
-    ((isDone(k)||isSkipped(k))?'<div class="mt" style="margin-top:6px">'+(isDone(k)?'<span class="tag dn">完了（直すときは保存し直す）</span>':'')+(isSkipped(k)?'<span class="tag later">あとで</span>':'')+'</div>':'')+
+    ((isDone(k)||isSkipped(k))?'<div class="mt" style="margin-top:6px">'+(isDone(k)?'<span class="tag dn">確認済み（修正する場合は入力し直して保存）</span>':'')+(isSkipped(k)?'<span class="tag later">保留</span>':'')+'</div>':'')+
     (it['参考URL']?'<div class="mt" style="margin-top:6px"><a href="'+esc(it['参考URL'])+'" target="_blank" rel="noopener">参考ページを開く</a></div>':'')+'</div>');
   activeFields().forEach(function(tk){h.push(fldHTML(tk));});
   h.push('<div class="fld"><div class="lb">メモ<span class="opt">任意</span></div>'+
     '<textarea data-k="note" maxlength="800" placeholder="気づいたこと">'+esc(draft.note)+'</textarea></div>');
   h.push('<div class="btns">'+
     '<button class="btn pri" data-act="save">保存して次へ</button>'+
-    '<button class="btn ngb" data-act="absent">現物なし（0点で保存）</button>'+
+    '<button class="btn ngb" data-act="absent">現物なしで保存</button>'+
     '<div class="two"><button class="btn sm" data-act="prev"'+(idx<=0?' disabled':'')+'>← 前へ</button>'+
-    '<button class="btn sm" data-act="later">あとで（スキップ）</button></div>'+
+    '<button class="btn sm" data-act="later">保留にする</button></div>'+
     '<button class="btn sm" data-act="tobox">箱の一覧へ戻る</button></div>');
-  h.push('<div class="hint" style="text-align:center;margin-top:10px">この箱 '+(idx+1)+' / '+rows.length+' 行目</div>');
+  h.push('<div class="hint" style="text-align:center;margin-top:10px">この箱 '+(idx+1)+' / '+rows.length+' 件目</div>');
   $('#app').innerHTML=h.join('');
   if(keepScroll)window.scrollTo(0,sc); else window.scrollTo(0,0);
 }
@@ -506,7 +506,7 @@ function gotoNext(){
     if(!isDone(kk)){ draftKey=null;ST.cardKey=kk;ST.view='card';render();return; }
   }
   draftKey=null;ST.view='box';ST.boxId=b.id;render();
-  toast('この箱は完了しました 🎉','ok');
+  toast('この箱の確認が完了しました','ok');
 }
 
 /* ---------- 画像 ---------- */
@@ -532,7 +532,7 @@ async function addImages(files){
   for(i=0;i<files.length;i++){
     try{
       var img=await loadImageFile(files[i]);
-      if(draftKey!==k||draft!==d){toast('別の行に移ったため写真を追加しませんでした','warn');return;}
+      if(draftKey!==k||draft!==d){toast('別の商品に移動したため、写真は追加されませんでした','warn');return;}
       var data=toJpeg(img,1600,0.85);
       if(b64Bytes(data)>MAX_PHOTO)data=toJpeg(img,1280,0.75);
       if(b64Bytes(data)>MAX_PHOTO)data=toJpeg(img,1024,0.65);
@@ -603,12 +603,12 @@ function pendingPhotos(k){
 function updateSync(){
   var el=$('#sync');if(!el)return;
   if(FAILED.length){el.className='ng';el.setAttribute('data-act','openfailed');
-    el.textContent='保存できませんでした '+FAILED.length+' 件（押して入力し直す）';return;}
+    el.textContent='保存できませんでした '+FAILED.length+' 件（タップして再入力）';return;}
   el.removeAttribute('data-act');
-  if(!QUEUE.length&&!CLOUD_OK){el.className='wait';el.textContent='確認中…（電波が戻ったら確認）';return;}
+  if(!QUEUE.length&&!CLOUD_OK){el.className='wait';el.textContent='最新の状態を確認中…';return;}
   if(!QUEUE.length){el.className='ok';el.textContent='保存済み ✓';return;}
   el.className='wait';
-  el.textContent=(_flushing?'送信中… ':'')+'未送信 '+QUEUE.length+' 件（電波が戻ったら自動送信）';
+  el.textContent=(_flushing?'送信中… ':'')+'未送信 '+QUEUE.length+' 件（通信が回復したら自動で送信します）';
 }
 async function post(body){
   // 応答が返らないまま止まると送信中のまま固まるので、30 秒で打ち切って送れなかった扱いにする
@@ -636,7 +636,7 @@ async function flush(){
       if(lost.length){
         row.images=row.images.filter(function(n){return lost.indexOf(n)<0;});
         lost.forEach(function(n){delete IMG[n];});
-        markFailed(k);toast('写真が端末から消えていました。撮り直して保存してください','ng');persist(true);updateSync();continue;
+        markFailed(k);toast('写真が見つかりません。撮り直して保存してください','ng');persist(true);updateSync();continue;
       }
       for(var j=0;j<ph.length;j++){
         var e=IMG[ph[j]],st=await post({op:'photo',name:ph[j],jpegBase64:e.d.split(',')[1]});
@@ -751,20 +751,20 @@ function openSearch(msg){
 }
 function stopScan(){if(_scan){var q=_scan;_scan=null;q.stop().catch(function(){}).then(function(){try{q.clear();}catch(e){}});}}
 function openScan(){
-  if(!window.Html5Qrcode){openSearch('カメラを使えません。箱の番号を入力して探してください');return;}
-  $('#sheetin').innerHTML='<h3>バーコード読取</h3><div id="reader" style="width:100%"></div><div class="btns"><button class="btn" data-act="typecode">番号を入力して探す</button><button class="btn" data-act="closesheet">閉じる</button></div>';
+  if(!window.Html5Qrcode){openSearch('カメラを起動できません。箱番号を入力して検索してください');return;}
+  $('#sheetin').innerHTML='<h3>バーコード読取</h3><div id="reader" style="width:100%"></div><div class="btns"><button class="btn" data-act="typecode">箱番号を入力して検索</button><button class="btn" data-act="closesheet">閉じる</button></div>';
   $('#sheet').classList.add('open');
   _scan=new Html5Qrcode('reader');
   _scan.start({facingMode:'environment'},{fps:10,qrbox:{width:260,height:120}},function(txt){
     txt=normCode(txt);closeSheet();
     var box=ST.items.filter(function(it){return it['箱']===txt;});
     if(box.length){draftKey=null;ST.filters.q='';ST.boxId=txt;ST.view='box';render();
-      if(!box.some(function(it){return !isDone(it._key);}))toast('この箱は完了済みです','warn');return;}
+      if(!box.some(function(it){return !isDone(it._key);}))toast('この箱は確認済みです','warn');return;}
     var one=ST.items.filter(function(it){return it['PKGI']===txt;});
     if(one.length===1){draftKey=null;ST.filters.q='';ST.cardKey=one[0]._key;ST.view='card';render();
-      if(isDone(one[0]._key))toast('この行は完了済みです（再編集できます）','warn');return;}
-    ST.view='home';ST.filters.q=txt;render();toast('読取: '+txt+'（'+(one.length||'一致なし')+'）');
-  },function(){}).catch(function(){closeSheet();openSearch('カメラを使えません。箱の番号を入力して探してください');});
+      if(isDone(one[0]._key))toast('この商品は確認済みです（修正できます）','warn');return;}
+    ST.view='home';ST.filters.q=txt;render();toast('読み取り: '+txt+'（'+(one.length?'該当 '+one.length+' 件':'該当なし')+'）');
+  },function(){}).catch(function(){closeSheet();openSearch('カメラを起動できません。箱番号を入力して検索してください');});
 }
 
 /* ---------- イベント ---------- */
@@ -781,7 +781,7 @@ document.addEventListener('click',function(e){
   else if(act==='card'){ST.cardKey=v;draftKey=null;ST.view='card';render();}
   else if(act==='start'){
     var b=ST.boxMap[ST.boxId],rs=boxRows(b).filter(function(x){return !isDone(x._key);});
-    if(!rs.length){toast('この箱に未完了はありません','warn');return;}
+    if(!rs.length){toast('この箱に未確認の商品はありません','warn');return;}
     ST.cardKey=rs[0]._key;draftKey=null;ST.view='card';render();
   }
   else if(act==='tobox'){ST.view='box';ST.boxId=ST.byKey[ST.cardKey]['箱'];draftKey=null;render();}
@@ -806,7 +806,7 @@ document.addEventListener('click',function(e){
     commit('save');toast('保存しました ✓','ok');gotoNext();
   }
   else if(act==='absent'){draft.absent=true;draft.qty=0;commit('absent');toast('現物なしで保存','ok');gotoNext();}
-  else if(act==='later'){commit('later');toast('あとでに記録しました','warn');gotoNext();}
+  else if(act==='later'){commit('later');toast('保留にしました','warn');gotoNext();}
   else if(act==='prev'){
     var it=ST.byKey[draftKey],bb=ST.boxMap[it['箱']],ks=boxRows(bb).map(function(x){return x._key;});
     var idx=ks.indexOf(draftKey);
@@ -819,9 +819,9 @@ document.addEventListener('click',function(e){
   else if(act==='reload'){location.reload();}
   else if(act==='exp'){closeSheet();cloudLoad().then(function(ok){
     // ほかの端末の最新を取り込んでから書き出す。取り込めなければ書き出さない
-    if(ok)exportCSV(); else toast('電波が弱く最新を確認できませんでした。電波の良い所でもう一度押してください','warn');
+    if(ok)exportCSV(); else toast('通信が不安定なため最新の状態を確認できませんでした。電波の良い場所で再度お試しください','warn');
   });}
-  else if(act==='typecode'){closeSheet();openSearch('箱の番号を入力して探してください');}
+  else if(act==='typecode'){closeSheet();openSearch('箱番号を入力して検索してください');}
   else if(act==='closesheet'){closeSheet();}
 });
 // 送れなかった分は、次の操作時（間引き 20 秒）とオンライン復帰時に再送する。進捗の取り直しは 60 秒おき
@@ -835,7 +835,7 @@ document.addEventListener('click',function(e){
       var dk=draftKey,d=draft;
       cloudLoad().then(function(ok){
         // 最新を取り込めなかったときは押し直さない（ほかの端末の答えを古い下書きで上書きしない）
-        if(!ok){toast('電波が弱く最新を確認できませんでした。もう一度押すとこの端末に保存します','warn');return;}
+        if(!ok){toast('通信が不安定なため最新の状態を確認できませんでした。もう一度押すと、この端末に一時保存します','warn');return;}
         if(draftKey===dk&&draft===d&&document.contains(t))t.click(); else flush();
       });
     }
@@ -876,15 +876,15 @@ function applyCSV(text){
 }
 function fallbackUI(){
   $('#app').innerHTML='<div class="prog"><div class="t">作業リストを読み込めませんでした</div>'+
-    '<div class="hint">電波のある場所で、下のボタンを押してください。</div></div>'+
-    '<div class="btns"><button class="btn pri" data-act="reload">もう一度読み込む</button></div>';
+    '<div class="hint">電波の良い場所で、下のボタンを押してください。</div></div>'+
+    '<div class="btns"><button class="btn pri" data-act="reload">再読み込み</button></div>';
 }
 var LS_INTRO='physcheck_v3_intro';
 function showIntro(){
   try{if(localStorage.getItem(LS_INTRO))return;}catch(e){}
   var d=document.createElement('div');d.className='intro';d.id='intro';
-  d.innerHTML='<div class="in"><ol><li>📷 箱のバーコードを読む</li><li>出てきた質問に答える（写真を撮る）</li><li>箱が終わったら次の箱へ</li></ol>'+
-    '<button class="btn pri" data-act="introok" style="width:100%">わかった</button></div>';
+  d.innerHTML='<div class="in"><ol><li>箱のバーコードを読み取る</li><li>表示された質問に回答する（必要に応じて撮影）</li><li>箱内の商品がすべて終わったら次の箱へ</li></ol>'+
+    '<button class="btn pri" data-act="introok" style="width:100%">はじめる</button></div>';
   document.body.appendChild(d);
 }
 (function init(){
