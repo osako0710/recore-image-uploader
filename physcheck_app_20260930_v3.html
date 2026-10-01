@@ -631,7 +631,7 @@ function fldHTML(tk){
           '<input type="number" inputmode="numeric" pattern="[0-9]*" data-cq="'+esc(p.c)+'" value="'+esc(p.n)+'">'+
           '<button class="qbtn" data-act="cq" data-c="'+esc(p.c)+'" data-v="1">＋</button></div>';}).join('')
       :'<div class="hint">色違いが入っているときは、色を 2 つ以上選んでください</div>'+
-       '<input type="text" data-k="color" maxlength="'+COLOR_MAX+'" style="margin-top:8px" placeholder="自由入力" value="'+esc(draft.color)+'">');
+       '<input type="text" data-k="color" maxlength="'+COLOR_MAX+'" style="margin-top:8px" placeholder="自由入力" value="'+esc(draft.color)+'"><div class="hint" id="colng" hidden>・と×は使えません</div>');
   }else if(n==='size'){
     var arr=SIZES,key=n;
     body='<div class="chips">'+arr.map(function(v){
@@ -863,19 +863,11 @@ var FAILED=[];           // 窓口に断られた行 key（入力し直して保
 var _flushing=false,_flushAgain=false,_lastFlush=0;
 var REV={};              // 行ごとの保存回数。送信中に保存し直されたら古い送信の成功でキューから外さない
 var CLOUD_READY=false,CLOUD_OK=false,_lastCloud=0; // OK=クラウドと突き合わせ済み
-// 合言葉はリンクの #k=… から読み、メモリにだけ持つ（画面・console・localStorage・URL のクエリには出さない）
-var KEY_HDR='x-physcheck-key'; // 保存窓口と同じ名前にそろえる
-var PASS='';
-var KEY_SEND=null;       // null=未確認 / true=付けて送る / false=窓口がまだ合言葉を受け取らない版なので付けない
-var AUTH_NG=false;       // 窓口に合言葉を断られた。開き直すまで送らず、端末に貯める
-var _reprobed=false;
 var _loadNG=false;       // 直近の進捗の読み込みに失敗した（状態表示の切り替えに使う）
-function readPass(){var m=/(?:^#|&)k=([^&]*)/.exec(location.hash||'');PASS=m?m[1]:'';}
-function keyHdr(h,force){if(PASS&&(KEY_SEND||force))h[KEY_HDR]=PASS;return h;}
 // 未送信がある間は、開いているだけで送り直す（30 秒後から、送れないたびに倍、最長 5 分。無くなれば止める）
 var RETRY_MIN=30000,RETRY_MAX=300000,_retryMs=RETRY_MIN,_retryT=null,_retryBusy=false;
 function retryPlan(){
-  if(!QUEUE.length||AUTH_NG){clearTimeout(_retryT);_retryT=null;_retryMs=RETRY_MIN;return;}
+  if(!QUEUE.length){clearTimeout(_retryT);_retryT=null;_retryMs=RETRY_MIN;return;}
   if(_retryT||_retryBusy)return;
   _retryT=setTimeout(retryRun,_retryMs);
 }
@@ -913,7 +905,6 @@ function updateSync(){
   el.removeAttribute('data-act');
   if(typeof bh!=='undefined'&&bh&&bh.busy){el.className='wait';el.textContent='ほかの端末の状況を確認中…';return;}
   var q=QUEUE.length,loading=_cloudP||!_lastCloud;
-  if(AUTH_NG){el.className='ng';el.textContent='作業用の QR コードから開き直してください'+(q?'（未送信 '+q+' 件はこの端末に残しています）':'');return;}
   if(_loadNG&&!loading){el.className='wait';el.textContent='ほかの人の進み具合を読み込めていません'+(q?'（未送信 '+q+' 件。通信が回復したら自動で送信します）':'（通信が回復したら自動で読み込みます）');return;}
   if(!q&&!CLOUD_OK){el.className='wait';el.textContent='最新の状態を確認中…';return;}
   if(!q){el.className='ok';el.textContent='保存済み ✓';return;}
@@ -924,7 +915,7 @@ async function post(body){
   // 応答が返らないまま止まると送信中のまま固まるので、30 秒で打ち切って送れなかった扱いにする
   var ac=new AbortController(),tm=setTimeout(function(){ac.abort();},30000);
   try{
-    var r=await fetch(API,{method:'POST',headers:keyHdr({'content-type':'application/json'}),body:JSON.stringify(body),signal:ac.signal});
+    var r=await fetch(API,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),signal:ac.signal});
     try{await r.text();}catch(e){}
     return r.status;
   }catch(e){return 0;}
@@ -935,12 +926,9 @@ function rowData(k){
 }
 async function flush(){
   if(_flushing){_flushAgain=true;return;}
-  if(!QUEUE.length||navigator.onLine===false||AUTH_NG){updateSync();return;}
+  if(!QUEUE.length||navigator.onLine===false){updateSync();return;}
   if(!CLOUD_OK||_cloudP){updateSync();return;} // ほかの端末の進捗を取り込めるまでは送らない（取り込み成功後に cloudLoad().then(flush) で送る）
   _flushing=true;_lastFlush=Date.now();updateSync();
-  var reprobe=false;
-  // 合言葉を断られた。窓口が合言葉を受け取る版に替わった直後なら、付け直して 1 回だけ送り直す
-  function denied(){if(PASS&&KEY_SEND===false&&!_reprobed){_reprobed=true;KEY_SEND=null;reprobe=true;}else AUTH_NG=true;}
   try{
     var keys=QUEUE.slice(),stop=false;
     for(var i=0;i<keys.length&&!stop;i++){
@@ -975,7 +963,7 @@ async function flush(){
           var r9=ST.results[k];if(r9&&r9.images)r9.images=r9.images.filter(function(n){return n!==ph[j];});
           delete IMG[ph[j]];persist(true);toast(PHOTO_FULL,'warn');
         }
-        else {if(st===401)denied();stop=true;break;}
+        else {stop=true;break;}
       }
       if(stop)break;
       if(badPhoto&&REV[k]!==rv){_flushAgain=true;continue;} // 送信中に保存し直された。新しい内容を次の周回で送る
@@ -983,17 +971,16 @@ async function flush(){
       if(REV[k]!==rv){_flushAgain=true;continue;} // 写真の送信中に保存し直された。新しい写真を送ってから行を送る
       var rs=await post({op:'row',key:k,data:rowData(k)});
       if(REV[k]!==rv){_flushAgain=true;}  // 送信中に保存し直された。新しい内容を次の周回で送る
-      else if(rs===200){QUEUE.splice(QUEUE.indexOf(k),1);_reprobed=false;}
+      else if(rs===200){QUEUE.splice(QUEUE.indexOf(k),1);}
       else if(rs===400){markFailed(k);toast('保存できませんでした。入力し直してください','ng');}
-      else {if(rs===401)denied();stop=true;}
+      else stop=true;
       saveQueue();persist(true);updateSync();
     }
     // 送れなかった間にほかの端末が同じ行を保存したかもしれない。進捗を取り込み直すまで再送しない
     if(stop)CLOUD_OK=false;
   }finally{
     _flushing=false;updateSync();
-    if(reprobe){_flushAgain=false;cloudLoad().then(flush);}
-    else if(_flushAgain){_flushAgain=false;setTimeout(flush,500);}
+    if(_flushAgain){_flushAgain=false;setTimeout(flush,500);}
   }
 }
 function mergeResults(local,cloud){
@@ -1018,14 +1005,7 @@ async function _cloudLoad(){
   // 電波が弱いと応答が返らないまま止まるので、15 秒で打ち切って読込失敗として扱う
   var ac=new AbortController(),tm=setTimeout(function(){ac.abort();},15000);
   try{
-    var r=null,url=API+'?op=progress';
-    if(PASS&&KEY_SEND!==false){
-      // 合言葉を付けて読めたら、保存にも付ける。窓口がまだ合言葉を受け取らない版だと通信ごと断られるので、付けずに取り直す
-      try{r=await fetch(url,{headers:keyHdr({},true),signal:ac.signal});KEY_SEND=true;}
-      catch(e){if(KEY_SEND||ac.signal.aborted)throw e;}
-    }
-    if(!r){r=await fetch(url,{signal:ac.signal});if(PASS&&KEY_SEND===null)KEY_SEND=false;}
-    if(r.status===401){AUTH_NG=true;CLOUD_OK=false;return false;}
+    var r=await fetch(API+'?op=progress',{signal:ac.signal});
     if(!r.ok){CLOUD_OK=false;_loadNG=true;return false;}
     var p=await r.json();
     if(!p||!p.results||typeof p.results!=='object'){CLOUD_OK=false;_loadNG=true;return false;}
@@ -1072,10 +1052,14 @@ function closeSheet(){stopScan();$('#sheet').classList.remove('open');}
 var _scan=null;
 function colorParts(s){ // 「青×1・黄×2」→ [{c:'青',n:1},{c:'黄',n:2}]。1 色なら [{c:'青',n:null}]
   if(!s)return [];
-  return String(s).split('・').map(function(x){
+  var ps=String(s).split('・').map(function(x){
     x=x.trim();var m=x.match(/^(.+?)×(\d+)$/);return m?{c:m[1],n:+m[2]}:{c:x,n:null};
   }).filter(function(p){return p.c;});
+  // 「×数」の無い部分が混じるなら、分けずに全体を 1 つの色名として扱う（「黒・白」のような 2 色づかいの名前を 2 色に割らない）
+  if(ps.length>=2&&ps.some(function(p){return p.n==null;}))return [{c:String(s).trim(),n:null}];
+  return ps;
 }
+function colorName(s){return String(s).replace(/・/g,'／').replace(/×/g,'x');} // 色名には区切りの「・」「×」を入れさせない
 function colorJoin(ps){
   if(ps.length<2)return ps.length?ps[0].c:'';
   return ps.map(function(p){return p.c+'×'+(p.n==null?0:p.n);}).join('・');
@@ -1279,8 +1263,6 @@ document.addEventListener('click',function(e){
 },true);
 // 電波が戻ったら、送る前に必ずほかの端末の進捗を取り込む（途切れている間の更新を上書きしない）
 window.addEventListener('online',function(){cloudLoad().then(flush);});
-// 作業用の QR コードから開き直した（同じ画面のまま #k=… が変わった）ら、合言葉を読み直して送り直す
-window.addEventListener('hashchange',function(){readPass();KEY_SEND=null;AUTH_NG=false;_reprobed=false;CLOUD_OK=false;cloudLoad().then(flush);});
 document.addEventListener('toggle',function(e){if(e.target.classList&&e.target.classList.contains('flt'))ST.fltOpen=e.target.open;},true);
 document.addEventListener('change',function(e){
   var t=e.target;
@@ -1303,10 +1285,21 @@ document.addEventListener('input',function(e){
     return;
   }
   if(!k||!draft)return;
-  draft[k]=(k==='qty')?num(t.value,0):t.value;
+  if(k==='color'&&!e.isComposing){
+    var cn=colorName(t.value);
+    if(cn!==t.value){t.value=cn;var ng=document.getElementById('colng');if(ng)ng.hidden=false;}
+  }
+  draft[k]=(k==='qty')?num(t.value,0):(k==='color'?colorName(t.value):t.value);
   if(k==='qty')qtyTouch();
   saveDraft();
   var f=t.closest('.fld');if(f)f.classList.remove('err');
+});
+// かな漢字の変換中は欄を書き換えない。確定したところで「・」「×」を置き換える
+document.addEventListener('compositionend',function(e){
+  var t=e.target;if(!draft||!t.getAttribute||t.getAttribute('data-k')!=='color')return;
+  var cn=colorName(t.value);
+  if(cn!==t.value){t.value=cn;var ng=document.getElementById('colng');if(ng)ng.hidden=false;}
+  draft.color=cn;saveDraft();
 });
 $('#gear').addEventListener('click',openSheet);
 $('#hscan').addEventListener('click',openScan);
@@ -1339,7 +1332,7 @@ function showIntro(){
   document.body.appendChild(d);
 }
 (function init(){
-  readPass();loadLS();loadQueue();updateSync();
+  loadLS();loadQueue();updateSync();
   fetch(CSV_URL+'?t='+Date.now()).then(function(r){
     if(!r.ok)throw new Error('HTTP '+r.status);
     return r.arrayBuffer();
