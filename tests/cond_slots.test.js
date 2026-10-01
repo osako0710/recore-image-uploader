@@ -1,7 +1,7 @@
 // 状態の内訳・写真と問題の結び付け・保存する形・1 行の大きさを確かめる
 // 実行: node --test tests/
 var test=require('node:test'),assert=require('node:assert'),fs=require('fs'),path=require('path');
-var html=fs.readFileSync(path.join(__dirname,'..','physcheck_app_20261001_v4.html'),'utf8');
+var html=fs.readFileSync(path.join(__dirname,'..','physcheck_app_20261001_v5.html'),'utf8');
 
 // 画面のファイルから、関数と定数の行をそのまま取り出す（写しを持たない）
 function pick(name){

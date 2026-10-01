@@ -2,7 +2,7 @@
 // 実行: node --test tests/
 var test=require('node:test'),assert=require('node:assert'),fs=require('fs'),path=require('path');
 var ROOT=path.join(__dirname,'..');
-var html=fs.readFileSync(path.join(ROOT,'physcheck_app_20261001_v4.html'),'utf8');
+var html=fs.readFileSync(path.join(ROOT,'physcheck_app_20261001_v5.html'),'utf8');
 
 // 画面のファイルから、関数の本体をそのまま取り出す（写しを持たない）
 function pick(name){
