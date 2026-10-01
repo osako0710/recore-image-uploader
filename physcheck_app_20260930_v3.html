@@ -164,6 +164,8 @@ var IMG={};            // {filename:{d:dataUrl,p:pushed}}
 var draft=null;        // 編集中カードの入力
 var draftKey=null;
 var errFields={};
+var issOpen=false;      // 「困ったことがある」を開いているか
+var imgPending=0;       // 読み込み中の写真の枚数
 
 /* ---------- utils ---------- */
 function $(s){return document.querySelector(s);}
@@ -243,6 +245,7 @@ function persist(now){
 /* ---------- 完了判定 ---------- */
 function res(k){return ST.results[k];}
 function isDone(k){var r=ST.results[k];if(FAILED&&FAILED.indexOf(k)>=0)return false;return !!r&&(r.absent===true||(!!r.checkedAt&&r.skipped!==true));}
+function hasIssue(k){var r=ST.results[k];return !!r&&!!r.issues&&r.issues.length>0;}
 function isSkipped(k){var r=ST.results[k];return !!r&&r.skipped===true;}
 
 /* ---------- index ---------- */
@@ -291,6 +294,7 @@ function boxRows(b){return b.rows.filter(matchFilter);}
 function render(){
   if(ST.view==='home')renderHome();
   else if(ST.view==='box')renderBox();
+  else if(ST.view==='issues')renderIssues();
   else renderCard();
 }
 function setHead(title,back){
@@ -326,9 +330,10 @@ function renderHome(){
 function updateHome(){
   var s=stats();
   var pct=s.total?Math.round((s.total-s.remain)/s.total*100):0;
+  var nIss=ST.items.filter(function(it){return hasIssue(it._key);}).length;
   $('#prog').innerHTML='<div class="t">残り <b>'+s.remain+'</b> / 全 '+s.total+'</div>'+
     '<div class="bar"><i style="width:'+pct+'%"></i></div>'+
-    '';
+    (nIss?'<button class="btn sm" style="margin-top:10px" data-act="issview">要確認 '+nIss+' 件を見る</button>':'');
   var list=[],nBox=0,nRemainBox=0;
   ST.boxes.forEach(function(b){
     var st=boxStat(b); if(st.total===0)return;
@@ -353,6 +358,18 @@ function rowHTML(it){
     '<div class="nm">'+esc(it['商品名'])+'</div></div>'+
     '<div class="r">›</div></button>';
 }
+function renderIssues(){
+  setHead('要確認',true);
+  var list=ST.items.filter(function(it){return hasIssue(it._key);});
+  var h=['<div class="sec">「困ったことがある」が付いた商品 '+list.length+' 件</div>'];
+  h.push(list.length?list.map(function(it){
+    var r=ST.results[it._key];
+    return '<button class="row" data-act="card" data-v="'+esc(it._key)+'">'+
+      '<div class="l"><div class="mt">'+esc(it['箱'])+' 行'+esc(it['行'])+'</div>'+
+      '<div class="nm">'+esc(it['商品名'])+'</div>'+
+      '<div class="mt">'+esc(r.issues.join('・'))+'</div></div><div class="r">›</div></button>';}).join(''):'<div class="empty">要確認の商品はありません</div>');
+  $('#app').innerHTML='<div style="display:flex;flex-direction:column;gap:8px">'+h.join('')+'</div>';
+}
 function renderBox(){
   var b=ST.boxMap[ST.boxId]; if(!b){ST.view='home';return render();}
   setHead(b.id,true);
@@ -366,13 +383,17 @@ function renderBox(){
   h.push('<div class="sec">未完了 '+st.remain+' 件'+(ST.showDone?'（確認済みも表示中）':'')+'</div>');
   var list=rows.filter(function(it){return ST.showDone||!isDone(it._key);}).map(rowHTML);
   h.push(list.length?list.join(''):'<div class="empty">表示する商品はありません</div>');
+  if(!ST.showDone){
+    var flagged=rows.filter(function(it){return isDone(it._key)&&hasIssue(it._key);});
+    if(flagged.length)h.push('<div class="sec">要確認 '+flagged.length+' 件（保存済み）</div>'+flagged.map(rowHTML).join(''));
+  }
   $('#app').innerHTML='<div style="display:flex;flex-direction:column;gap:8px">'+h.join('')+'</div>';
 }
 
 /* ---------- カード ---------- */
 function startDraft(k){
   var r=ST.results[k]||{},it=ST.byKey[k];
-  draftKey=k;errFields={};
+  draftKey=k;errFields={};issOpen=false;
   draft={
     qty:(r.qty===0||r.qty)?r.qty:it._qty0,
     absent:r.absent===true?true:(r.absent===false?false:undefined),
@@ -482,15 +503,19 @@ function renderCard(keepScroll){
     ((isDone(k)||isSkipped(k))?'<div class="mt" style="margin-top:6px">'+(isDone(k)?'<span class="tag dn">確認済み（修正する場合は入力し直して保存）</span>':'')+(isSkipped(k)?'<span class="tag later">保留</span>':'')+'</div>':'')+
     (it['参考URL']?'<div class="mt" style="margin-top:6px"><a href="'+esc(it['参考URL'])+'" target="_blank" rel="noopener">参考ページを開く</a></div>':'')+'</div>');
   activeFields().forEach(function(tk){h.push(fldHTML(tk));});
-  h.push('<div class="fld"><div class="lb">困ったこと・気になること<span class="opt">任意</span></div>'+
-    '<div class="chips">'+ISSUES.map(function(v){
-      return '<button class="chip sm'+(draft.issues.indexOf(v)>=0?' on':'')+'" data-act="issue" data-v="'+esc(v)+'">'+esc(v)+'</button>';}).join('')+'</div>'+
-    '<div class="hint">迷ったら選んでください。担当者があとで確認します</div></div>');
+  if(issOpen||draft.issues.length){
+    h.push('<div class="fld"><div class="lb">困ったこと・気になること<span class="opt">任意</span></div>'+
+      '<div class="chips">'+ISSUES.map(function(v){
+        return '<button class="chip sm'+(draft.issues.indexOf(v)>=0?' on':'')+'" data-act="issue" data-v="'+esc(v)+'">'+esc(v)+'</button>';}).join('')+'</div>'+
+      '<div class="hint">迷ったら選んでください。担当者があとで確認します</div></div>');
+  }else{
+    h.push('<button class="chip sm" style="align-self:flex-start;margin:4px 0" data-act="issopen">困ったことがある ▾</button>');
+  }
   // 文字を打たなくても、写真を撮るだけで伝えられる（色やサイズは写真から後で読み取る）
   var hasPhoto=activeFields().some(function(tk){return tk.n==='photo';});
-  h.push('<div class="fld"><div class="lb">メモ<span class="opt">任意</span></div>'+
+  h.push('<div class="fld'+(errFields.note?' err':'')+'" data-fld="note"><div class="lb">メモ<span class="opt">任意</span></div>'+
     (hasPhoto?'':photoHTML('📷 写真でメモする（タグ・色・気になる所）'))+
-    '<textarea data-k="note" maxlength="400" placeholder="文字で書く場合はこちら"'+(hasPhoto?'':' style="margin-top:8px"')+'>'+esc(draft.note)+'</textarea></div>');
+    '<textarea data-k="note" maxlength="400" placeholder="文字で書く場合はこちら"'+(hasPhoto?'':' style="margin-top:8px"')+'>'+esc(draft.note)+'</textarea><div class="emsg">「その他」の内容を、写真か文字で入れてください</div></div>');
   h.push('<div class="btns">'+
     '<button class="btn pri" data-act="save">保存して次へ</button>'+
     '<button class="btn ngb" data-act="absent">現物なしで保存</button>'+
@@ -521,6 +546,7 @@ function validate(){
     if(v===''||v==null){errFields[tk.n]=1;ok=false;}
     if(tk.n==='qty'&&draft.absent!==true&&num(draft.qty,-1)<0){errFields.qty=1;ok=false;}
   });
+  if(draft.issues.indexOf('その他')>=0&&!String(draft.note||'').trim()&&!draft.images.length){errFields.note=1;ok=false;}
   return ok;
 }
 function commit(mode){ // mode: save | absent | later
@@ -562,10 +588,11 @@ function toJpeg(img,max,q){
 function b64Bytes(dataUrl){var b=dataUrl.slice(dataUrl.indexOf(',')+1);return Math.floor(b.length*3/4);}
 async function addImages(files){
   var k=draftKey,d=draft,it=ST.byKey[k],i;
+  imgPending+=files.length;
   for(i=0;i<files.length;i++){
     try{
       var img=await loadImageFile(files[i]);
-      if(draftKey!==k||draft!==d){toast('別の商品に移動したため、写真は追加されませんでした','warn');return;}
+      if(draftKey!==k||draft!==d){imgPending=Math.max(0,imgPending-(files.length-i));toast('別の商品に移動したため、写真は追加されませんでした','warn');return;}
       var data=toJpeg(img,1600,0.85);
       if(b64Bytes(data)>MAX_PHOTO)data=toJpeg(img,1280,0.75);
       if(b64Bytes(data)>MAX_PHOTO)data=toJpeg(img,1024,0.65);
@@ -574,6 +601,7 @@ async function addImages(files){
       IMG[name]={d:data,p:false};
       draft.images.push(name);
     }catch(e){toast('画像の読み込みに失敗しました','ng');}
+    imgPending=Math.max(0,imgPending-1);
   }
   saveDraft();renderCard(true);
 }
@@ -853,8 +881,10 @@ document.addEventListener('click',function(e){
   var act=t.getAttribute('data-act'),v=t.getAttribute('data-v');
   // 最初のクラウド読込が終わる前に保存すると、古い下書きで新しい答えを上書きしてしまう
   if(!CLOUD_READY&&((act==='pres'&&v==='no')||act==='save'||act==='absent'||act==='later')){toast('読み込み中です。少し待ってから保存してください','warn');return;}
+  if(imgPending>0&&(act==='save'||act==='absent'||act==='later')){toast('写真を読み込み中です。少し待ってから保存してください','warn');return;}
   if(act==='fm'){ST.filters.month=v;renderHome();}
   else if(act==='ft'){ST.filters.task=v;renderHome();}
+  else if(act==='issview'){ST.view='issues';draftKey=null;render();}
   else if(act==='tgdone'){ST.showDone=!ST.showDone;render();}
   else if(act==='box'){ST.boxId=v;ST.view='box';render();}
   else if(act==='card'){ST.cardKey=v;draftKey=null;ST.view='card';render();}
@@ -893,6 +923,7 @@ document.addEventListener('click',function(e){
     var k=t.getAttribute('data-k');
     draft[k]=(draft[k]===v)?'':v;saveDraft();renderCard(true);
   }
+  else if(act==='issopen'){issOpen=true;renderCard(true);}
   else if(act==='issue'){
     var ii=draft.issues.indexOf(v);if(ii>=0)draft.issues.splice(ii,1);else draft.issues.push(v);saveDraft();renderCard(true);
   }
@@ -976,6 +1007,7 @@ $('#sheet').addEventListener('click',function(e){if(e.target.id==='sheet')closeS
 $('#back').addEventListener('click',function(){
   if(ST.view==='card'){ST.view='box';ST.boxId=ST.byKey[ST.cardKey]['箱'];draftKey=null;}
   else if(ST.view==='box'){ST.view='home';ST.boxId=null;}
+  else if(ST.view==='issues'){ST.view='home';}
   render();
 });
 
