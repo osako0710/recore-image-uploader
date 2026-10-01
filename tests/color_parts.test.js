@@ -1,4 +1,4 @@
-// 色の値の読み方と、色名の欄の置き換えを確かめる
+// 色の値の読み方と、色名を打つ欄が無いことを確かめる
 // 実行: node --test tests/
 var test=require('node:test'),assert=require('node:assert'),fs=require('fs'),path=require('path');
 var html=fs.readFileSync(path.join(__dirname,'..','physcheck_app_20260930_v3.html'),'utf8');
@@ -14,7 +14,7 @@ function pick(name){
   }
   throw new Error('関数の終わりが見つかりません: '+name);
 }
-var names=['colorParts','colorJoin','colorSum','colorName'];
+var names=['colorParts','colorJoin','colorSum'];
 var app=new Function(names.map(pick).join('\n')+'\nreturn {'+names.map(function(n){return n+':'+n;}).join(',')+'};')();
 
 test('色ごとの数が付いた値は色ごとに分かれる',function(){
@@ -34,14 +34,22 @@ test('「×数」の無い部分が混じる値は、分けずに 1 つの色名
   assert.strictEqual(app.colorJoin(app.colorParts('黒・白')),'黒・白');
 });
 
-test('色名の欄では「・」を「／」、「×」を「x」に置き換える',function(){
-  assert.strictEqual(app.colorName('黒・白'),'黒／白');
-  assert.strictEqual(app.colorName('赤×青'),'赤x青');
-  assert.strictEqual(app.colorName('えんじ'),'えんじ');
+var COLORS=JSON.parse(/var COLORS=(\[[^\]]+\])/.exec(html)[1].replace(/'/g,'"'));
+
+test('「その他」を含む 2 色は、開き直しても同じに戻る',function(){
+  var saved=app.colorJoin([{c:'青',n:1},{c:'その他',n:1}]);
+  assert.strictEqual(saved,'青×1・その他×1');
+  assert.deepStrictEqual(app.colorParts(saved),[{c:'青',n:1},{c:'その他',n:1}]);
+  assert.deepStrictEqual(app.colorParts('その他'),[{c:'その他',n:null}]);
 });
 
-test('置き換えた色名は、ほかの色と合わせて開き直しても割れない',function(){
-  var saved='青×1・'+app.colorName('黒・白')+'×1';
-  assert.strictEqual(saved,'青×1・黒／白×1');
-  assert.deepStrictEqual(app.colorParts(saved),[{c:'青',n:1},{c:'黒／白',n:1}]);
+test('色ボタンから作った値は、ボタンの色名だけでできている',function(){
+  assert.ok(COLORS.indexOf('その他')>=0);
+  var saved=app.colorJoin(COLORS.map(function(c,i){return {c:c,n:i+1};}));
+  app.colorParts(saved).forEach(function(p){assert.ok(COLORS.indexOf(p.c)>=0,p.c);});
+});
+
+test('色名を打つ欄と、色名の置き換えが画面に無い',function(){
+  assert.ok(html.indexOf('data-k="color"')<0);
+  assert.ok(html.indexOf('function colorName(')<0);
 });
