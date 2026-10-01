@@ -826,6 +826,7 @@ function updateSync(){
   if(FAILED.length){el.className='ng';el.setAttribute('data-act','openfailed');
     el.textContent='保存できませんでした '+FAILED.length+' 件（タップして再入力）';return;}
   el.removeAttribute('data-act');
+  if(typeof bh!=='undefined'&&bh&&bh.busy){el.className='wait';el.textContent='ほかの端末の状況を確認中…';return;}
   if(!QUEUE.length&&!CLOUD_OK){el.className='wait';el.textContent=(_cloudP||!_lastCloud)?'最新の状態を確認中…':'最新の状態を取得できませんでした（通信が回復したら自動で再取得します）';return;}
   if(!QUEUE.length){el.className='ok';el.textContent='保存済み ✓';return;}
   el.className='wait';
@@ -1106,12 +1107,18 @@ document.addEventListener('click',function(e){
     if(bh.busy)return;
     // 箱の全行を保留にする前に、保存先から取り直す（ほかの端末が先に確認した行を保留で上書きしない）
     var me=bh;me.busy=true;toast('ほかの端末の状況を確かめています','warn');
-    cloudLoad().then(function(ok){
-      me.busy=false;
+    // 押す前から走っていた取り直しは、押した後の保存を見ていないことがある。終わるのを待ってから、もう一度取り直す
+    var again=function(){return cloudLoad();};
+    var fresh=_cloudP?_cloudP.then(again,again):cloudLoad();
+    updateSync();
+    fresh.then(function(ok){
+      me.busy=false;updateSync();
       if(bh!==me||ST.view!=='boxhelp')return;
       if(!ok){toast('通信が不安定で、箱の最新の状態を確かめられませんでした。電波のよい所でもう一度押してください（写真は残っています）','warn');return;}
+      // 待っている間に写真や理由を外していたら、保留にしない
+      if(!draft||!bhNew().length||!bh.reason){bh.err=true;renderBoxHelp();toast('写真と「分からないこと」を入れてください','ng');return;}
       if(commitBoxHelp())toast('担当者に回しました。次の箱へ進んでください','ok');
-    });
+    },function(){me.busy=false;updateSync();});
   }
   else if(act==='save'){
     if(!validate()){renderCard(true);toast('必須項目が未入力です','ng');
