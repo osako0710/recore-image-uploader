@@ -20,7 +20,7 @@ function pickVar(name){
   return html.slice(s,html.indexOf('\n',s+1));
 }
 var vars=['SLOTS','CONDS','COND_BAD','COND_ASK','PROBS','PROB_PHOTO','PLACES','MISSING','COND_LABEL','SHIPS','ISSUE_MIX','ISSUES','ROW_MAX','PHOTO_MAX','LONG_FIELDS'];
-var fns=['labelMap','condBad','colorParts','slotOf','slotImgs','slotName','linksIn','linksOf','setLinks','photoProbs','unlinked','linkSync','needSlots','missSlots','slim','rowBytes','rowTooBig'];
+var fns=['labelMap','condBad','colorParts','slotOf','slotImgs','slotName','pickSlot','linksIn','linksOf','setLinks','photoProbs','unlinked','linkSync','needSlots','missSlots','slim','rowBytes','rowTooBig'];
 var out=fns.concat(['CONDS','PROBS','PROB_PHOTO','PLACES','MISSING','ISSUES','ROW_MAX','PHOTO_MAX','SHIPS']);
 var app=new Function('var draft;function activeFields(){return [];}\n'+pick('labelMap')+vars.map(pickVar).join('')+'\n'+fns.slice(1).map(pick).join('\n')+
   '\nreturn {set:function(d){draft=d;},'+out.map(function(n){return n+':'+n;}).join(',')+'};')();
@@ -135,4 +135,25 @@ test('上限を超える行は送る前に止まり、保存済みにならな�
   assert.ok(stop>0&&ret>stop);
   assert.ok(c.indexOf('ST.results[k]=o')>ret&&c.indexOf('enqueue(k)')>ret);
   assert.strictEqual(app.rowTooBig(bigRow(5,2,false,2,2,2,1,'青')),null);
+});
+
+test('まとめて選んだ写真は、空いている枠へ順に入り、埋まったら別の角度に足す',function(){
+  var d=mk({images:[],slots:{}}),got=[];
+  ['a.jpg','b.jpg','c.jpg','e.jpg'].forEach(function(nm,i){
+    d.images.push(nm);var use=app.pickSlot('f',i);d.slots[nm]=use;got.push(use);
+  });
+  assert.deepStrictEqual(got,['f','b','x','x']);
+});
+test('先に写真がある枠は飛ばす。傷の枠とメモ用は、選んだ所にそのまま入る',function(){
+  var d=mk({images:['p.jpg','n.jpg'],slots:{'p.jpg':'b'}});
+  assert.strictEqual(app.pickSlot('f',0),'f');
+  d.slots['n.jpg']='f';
+  assert.strictEqual(app.pickSlot('f',1),'x');
+  assert.strictEqual(app.pickSlot('d',2),'d');
+  assert.strictEqual(app.pickSlot('',2),'');
+  assert.strictEqual(app.pickSlot(undefined,1),undefined);
+});
+test('画面の文言に絵文字を使わない（設定の歯車だけは記号として残す）',function(){
+  var hit=(html.match(/[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}]/gu)||[]).filter(function(c){return c!=='\u2699';});
+  assert.deepStrictEqual(hit,[]);
 });

@@ -162,7 +162,7 @@ details.flt[open]{padding-bottom:12px}
 <header>
   <button id="back" style="display:none">戻る</button>
   <div class="ttl" id="title">現物確認</div>
-  <button id="hscan" style="display:none;padding:0 12px;font-weight:700;border-color:var(--pri);color:var(--pri)">📷 読み取る</button>
+  <button id="hscan" style="display:none;padding:0 12px;font-weight:700;border-color:var(--pri);color:var(--pri)">読み取る</button>
   <button id="gear" aria-label="設定">⚙</button>
 </header>
 <main id="app"><div class="loading">読み込み中…</div></main>
@@ -393,7 +393,7 @@ function nf(n){return n.toLocaleString('en-US');}
 function renderHome(){
   setHead('現物確認',false);
   var h=[];
-  h.push('<button class="scanbtn" data-act="scan">📷 箱のバーコードを読み取る</button>');
+  h.push('<button class="scanbtn" data-act="scan">箱のバーコードを読み取る</button>');
   h.push('<div class="prog" id="prog"></div>');
   h.push('<details class="flt"'+(ST.fltOpen?' open':'')+'><summary>⚙ 絞り込み</summary>');
   h.push('<div class="sec">月</div><div class="chips" id="fm"></div>');
@@ -468,9 +468,9 @@ function renderBox(){
   var rest=ctxRest(b.id),inBox=rest.filter(function(x){return x[3]!=='gone';}),gone=rest.filter(function(x){return x[3]==='gone';});
   // 完了・保留中は、絞り込みに関係なく箱全体で決める
   var all=boxTodo(b),allLater=all.filter(function(x){return isSkipped(x._key);}).length;
-  if(!all.length)h.push('<div class="donebox">この箱の確認が完了しました</div><button class="scanbtn" data-act="scan">📷 次の箱を読み取る</button>'+
+  if(!all.length)h.push('<div class="donebox">この箱の確認が完了しました</div><button class="scanbtn" data-act="scan">次の箱を読み取る</button>'+
     '<div class="btns"><button class="btn sm" data-act="tohome">箱の一覧へ戻る</button></div>');
-  else if(allLater===all.length)h.push('<div class="donebox hold">この箱は保留中です（担当者が確認します）</div><button class="scanbtn" data-act="scan">📷 次の箱を読み取る</button>'+
+  else if(allLater===all.length)h.push('<div class="donebox hold">この箱は保留中です（担当者が確認します）</div><button class="scanbtn" data-act="scan">次の箱を読み取る</button>'+
     (st.remain>0?'<div class="btns"><button class="btn sm" data-act="start">保留にした商品を確認する</button></div>':''));
   else if(st.remain===0||st.later===st.remain)h.push('<div class="note" style="margin-top:0">この箱には、まだ確認していない商品が <b>'+(all.length-allLater)+' 件</b>あります（絞り込み中のため、下に出ていません）</div>'+
     '<div class="btns"><button class="btn pri" data-act="clearflt">絞り込みを外して確認する</button></div>');
@@ -677,6 +677,12 @@ function activeFields(){
 function shootOn(){return !!draft&&draft.absent!==true;}
 // 枠の値は 1 文字。傷の枠だけ、写っている問題を後ろに付ける（例 d:dirt+scratch）
 function slotOf(nm){return String((draft.slots&&draft.slots[nm])||'').charAt(0);}
+// まとめて選んだ i 枚目（0 始まり）の写真を入れる枠。メモ用（枠なし）と傷の枠は、選んだ所にそのまま入れる
+function pickSlot(sl,i){
+  if(!sl||sl==='d'||!i)return sl;
+  var ms=['f','b','x'].filter(function(x){return !slotImgs(x).length;});
+  return ms.length?ms[0]:'x';
+}
 function slotImgs(sl){return draft.images.filter(function(nm){return slotOf(nm)===sl;});}
 function slotName(sl){var c=String(sl||'').charAt(0),x=SLOTS.filter(function(s){return s[0]===c;})[0];return x?x[1]:'';}
 function linksIn(v){v=String(v||'');return v.charAt(1)===':'?v.slice(2).split('+').filter(Boolean):[];}
@@ -1039,8 +1045,7 @@ async function addImages(files,sl,p){ // sl: 写真の枠（無ければメモ�
       IMG[name]={d:data,p:false};
       draft.images.push(name);
       // まとめて選んだ 2 枚目からは、まだ写真が無い枠（正面 → 裏・ラベル → 別の角度）へ順に入れる。全部埋まったら「別の角度」に足す
-      var use=sl;
-      if(sl&&sl!=='d'&&i>0){var ms=['f','b','x'].filter(function(x){return !slotImgs(x).length;});use=ms.length?ms[0]:'x';}
+      var use=pickSlot(sl,i);
       if(use)draft.slots[name]=use+(use==='d'&&p?':'+p:'');
     }catch(e){toast('画像の読み込みに失敗しました','ng');}
     imgPending=Math.max(0,imgPending-1);
