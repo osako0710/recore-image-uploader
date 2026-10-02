@@ -1038,9 +1038,9 @@ async function addImages(files,sl,p){ // sl: 写真の枠（無ければメモ�
       do{ name=it['PKGI']+'_'+it['行']+'_'+n+'.jpg'; n++; }while(IMG[name]||draft.images.indexOf(name)>=0);
       IMG[name]={d:data,p:false};
       draft.images.push(name);
-      // まとめて選んだ 2 枚目からは、まだ写真が無い枠（正面 → 裏・ラベル → 別の角度）へ順に入れる
+      // まとめて選んだ 2 枚目からは、まだ写真が無い枠（正面 → 裏・ラベル → 別の角度）へ順に入れる。全部埋まったら「別の角度」に足す
       var use=sl;
-      if(sl&&sl!=='d'&&i>0){var ms=missSlots().filter(function(x){return x!=='d';});if(ms.length)use=ms[0];}
+      if(sl&&sl!=='d'&&i>0){var ms=['f','b','x'].filter(function(x){return !slotImgs(x).length;});use=ms.length?ms[0]:'x';}
       if(use)draft.slots[name]=use+(use==='d'&&p?':'+p:'');
     }catch(e){toast('画像の読み込みに失敗しました','ng');}
     imgPending=Math.max(0,imgPending-1);
@@ -1382,7 +1382,7 @@ function zoomSet(v,vs){
 }
 function openScan(){
   if(!window.Html5Qrcode){openSearch('カメラを起動できません。箱番号を入力して検索してください');return;}
-  $('#sheetin').innerHTML='<h3>バーコード読取</h3><div id="readerwrap" style="width:100%;overflow:hidden;border-radius:10px;background:#000"><div id="reader"></div></div><div id="zoomrow" class="zoomrow"></div><p style="margin:8px 0 0;font-size:13px;color:var(--sub)">枠の中にバーコード全体を入れてください<span id="zoomhint" hidden>。読めないときは上の ×1・×2・×3 で大きさを変えられます</span></p><div class="btns"><button class="btn" data-act="typecode">箱番号を入力して検索</button><button class="btn" data-act="closesheet">閉じる</button></div>';
+  $('#sheetin').innerHTML='<h3>バーコード読取</h3><div id="readerwrap" style="width:100%;overflow:hidden;border-radius:10px;background:#000"><div id="reader"></div></div><div id="zoomrow" class="zoomrow"></div><p style="margin:8px 0 0;font-size:13px;color:var(--sub)">枠の中にバーコード全体を入れてください<span id="zoomhint" hidden>。読めないときは上のボタンで大きさを変えられます</span></p><div class="btns"><button class="btn" data-act="typecode">箱番号を入力して検索</button><button class="btn" data-act="closesheet">閉じる</button></div>';
   $('#sheet').classList.add('open');
   // 読取用の画像は表示サイズ（CSSピクセル）で作られる。内部を大きく組んで縮小表示し、離れた小さいバーコードも解像できるようにする
   var wrap=$('#readerwrap'),rd=$('#reader'),vw=wrap.clientWidth||320,W=Math.max(vw,Math.min(1920,vw*6)),sc=vw/W;
