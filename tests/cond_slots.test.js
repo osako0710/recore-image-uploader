@@ -20,7 +20,7 @@ function pickVar(name){
   return html.slice(s,html.indexOf('\n',s+1));
 }
 var vars=['SLOTS','CONDS','COND_BAD','COND_ASK','PROBS','PROB_PHOTO','PLACES','MISSING','COND_LABEL','SHIPS','ISSUE_MIX','ISSUES','ROW_MAX','PHOTO_MAX','LONG_FIELDS'];
-var fns=['labelMap','condBad','colorParts','slotOf','slotImgs','slotName','pickSlot','linksIn','linksOf','setLinks','photoProbs','unlinked','linkSync','needSlots','missSlots','slim','rowBytes','rowTooBig'];
+var fns=['labelMap','condBad','colorParts','slotOf','slotImgs','slotName','pickSlot','kbGap','linksIn','linksOf','setLinks','photoProbs','unlinked','linkSync','needSlots','missSlots','slim','rowBytes','rowTooBig'];
 var out=fns.concat(['CONDS','PROBS','PROB_PHOTO','PLACES','MISSING','ISSUES','ROW_MAX','PHOTO_MAX','SHIPS']);
 var app=new Function('var draft;function activeFields(){return [];}\n'+pick('labelMap')+vars.map(pickVar).join('')+'\n'+fns.slice(1).map(pick).join('\n')+
   '\nreturn {set:function(d){draft=d;},'+out.map(function(n){return n+':'+n;}).join(',')+'};')();
@@ -156,4 +156,12 @@ test('先に写真がある枠は飛ばす。傷の枠とメモ用は、選ん�
 test('画面の文言に絵文字を使わない（設定の歯車だけは記号として残す）',function(){
   var hit=(html.match(/[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}]/gu)||[]).filter(function(c){return c!=='\u2699';});
   assert.deepStrictEqual(hit,[]);
+});
+test('キーボードが出たら、その高さだけ下端の表示を上げる。拡大中と小さな変化では上げない',function(){
+  assert.strictEqual(app.kbGap(812,476,0,1),336);
+  assert.strictEqual(app.kbGap(812,400,76,1),336);
+  assert.strictEqual(app.kbGap(812,812,0,1),0);
+  assert.strictEqual(app.kbGap(812,762,0,1),0);
+  assert.strictEqual(app.kbGap(812,406,100,2),0);
+  assert.strictEqual(app.kbGap(812,NaN,0,1),0);
 });

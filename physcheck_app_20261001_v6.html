@@ -148,11 +148,11 @@ details.flt{margin-top:12px;background:var(--card);border:1px solid var(--line);
 details.flt summary{min-height:52px;display:flex;align-items:center;font-weight:700;color:var(--sub);list-style:none}
 details.flt summary::-webkit-details-marker{display:none}
 details.flt[open]{padding-bottom:12px}
-#sync{position:fixed;left:0;right:0;bottom:0;z-index:40;background:#fff;border-top:1px solid var(--line);padding:10px 14px calc(10px + env(safe-area-inset-bottom));font-size:15px;font-weight:700;text-align:center}
+#sync{position:fixed;left:0;right:0;bottom:var(--kb,0px);z-index:40;background:#fff;border-top:1px solid var(--line);padding:10px 14px calc(10px + env(safe-area-inset-bottom));font-size:15px;font-weight:700;text-align:center}
 #sync.ok{color:var(--ok)}
 #sync.wait{color:var(--warn);background:#fff7e6}
 #sync.ng{color:#fff;background:var(--ng,#c0392b);cursor:pointer}
-#toast{bottom:64px!important}
+#toast{bottom:calc(64px + var(--kb,0px))!important}
 .intro{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px}
 .intro .in{background:#fff;border-radius:16px;padding:20px;width:100%;max-width:420px}
 .intro ol{margin:0 0 16px;padding-left:1.4em;font-size:18px;line-height:1.9;font-weight:600}
@@ -1588,6 +1588,16 @@ document.addEventListener('focusin',function(e){
     if(r.top<top+60||r.bottom>bot-90)window.scrollBy(0,r.top+r.height/2-(top+vv.height/2));
   },350);
 });
+// キーボードが出ている間、下端の保存状態と通知をキーボードの上へ上げる。拡大中と小さな変化（ツールバーの出入り）では動かさない
+function kbGap(innerH,vvH,vvTop,scale){
+  var g=Math.round(innerH-vvH-vvTop);
+  return (scale&&scale>1.01)||!(g>80)?0:g;
+}
+(function(){
+  var vv=window.visualViewport;if(!vv)return;
+  function upd(){document.documentElement.style.setProperty('--kb',kbGap(window.innerHeight,vv.height,vv.offsetTop,vv.scale)+'px');}
+  vv.addEventListener('resize',upd);vv.addEventListener('scroll',upd);
+})();
 var _qT=null;
 document.addEventListener('input',function(e){
   var t=e.target,k=t.getAttribute&&t.getAttribute('data-k');
