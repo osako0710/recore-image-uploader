@@ -153,6 +153,7 @@ test('先に写真がある枠は飛ばす。傷の枠とメモ用は、選ん�
   assert.strictEqual(app.pickSlot('',2),'');
   assert.strictEqual(app.pickSlot(undefined,1),undefined);
 });
-test('ボタンの文言に絵文字を使わない',function(){
-  assert.ok(!/[\u{1F300}-\u{1FAFF}]/u.test(html));
+test('画面の文言に絵文字を使わない（設定の歯車だけは記号として残す）',function(){
+  var hit=(html.match(/[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}]/gu)||[]).filter(function(c){return c!=='\u2699';});
+  assert.deepStrictEqual(hit,[]);
 });
