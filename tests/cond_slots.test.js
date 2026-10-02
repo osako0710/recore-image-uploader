@@ -19,8 +19,8 @@ function pickVar(name){
   if(s<0)throw new Error('定数が見つかりません: '+name);
   return html.slice(s,html.indexOf('\n',s+1));
 }
-var vars=['SLOTS','CONDS','COND_BAD','PROBS','PROB_PHOTO','PLACES','MISSING','COND_LABEL','SHIPS','ISSUE_MIX','ISSUES','ROW_MAX','PHOTO_MAX','LONG_FIELDS'];
-var fns=['labelMap','colorParts','slotOf','slotImgs','slotName','linksIn','linksOf','setLinks','photoProbs','unlinked','linkSync','needSlots','missSlots','slim','rowBytes','rowTooBig'];
+var vars=['SLOTS','CONDS','COND_BAD','COND_ASK','PROBS','PROB_PHOTO','PLACES','MISSING','COND_LABEL','SHIPS','ISSUE_MIX','ISSUES','ROW_MAX','PHOTO_MAX','LONG_FIELDS'];
+var fns=['labelMap','condBad','colorParts','slotOf','slotImgs','slotName','linksIn','linksOf','setLinks','photoProbs','unlinked','linkSync','needSlots','missSlots','slim','rowBytes','rowTooBig'];
 var out=fns.concat(['CONDS','PROBS','PROB_PHOTO','PLACES','MISSING','ISSUES','ROW_MAX','PHOTO_MAX','SHIPS']);
 var app=new Function('var draft;function activeFields(){return [];}\n'+pick('labelMap')+vars.map(pickVar).join('')+'\n'+fns.slice(1).map(pick).join('\n')+
   '\nreturn {set:function(d){draft=d;},'+out.map(function(n){return n+':'+n;}).join(',')+'};')();
@@ -30,9 +30,23 @@ function mk(o){
   app.set(d);return d;
 }
 
-test('状態は 4 つを別の値で持つ',function(){
-  assert.deepStrictEqual(app.CONDS.map(function(x){return x[0];}),['new','opened','used','damaged']);
+test('状態は 6 段階を別の値で持ち、前からある値を残す',function(){
+  assert.deepStrictEqual(app.CONDS.map(function(x){return x[0];}),['new','opened','used','fair','damaged','bad']);
+  assert.deepStrictEqual(app.SHIPS.map(function(x){return x[1];}),['60','80','100','140','160','160超']);
   assert.deepStrictEqual(app.SHIPS.map(function(x){return x[0];}),['60','80','100','140','160','over']);
+});
+
+test('傷や汚れがある 3 つの状態では内訳を残し、それ以外では落とす',function(){
+  ['fair','damaged','bad'].forEach(function(c){
+    mk({cond:c,condProblems:['dirt']});
+    assert.deepStrictEqual(app.needSlots(),['f','b','d'],c);
+    assert.deepStrictEqual(app.slim({cond:c,condProblems:['dirt'],condPlaces:{dirt:['hem']}}).condProblems,['dirt'],c);
+  });
+  ['new','opened','used'].forEach(function(c){
+    mk({cond:c,condProblems:['dirt']});
+    assert.deepStrictEqual(app.needSlots(),['f','b'],c);
+    assert.strictEqual(app.slim({cond:c,condProblems:['dirt'],condPlaces:{dirt:['hem']}}).condProblems,undefined,c);
+  });
 });
 
 test('におい・付属品の欠けだけなら、傷の写真は要らない',function(){
