@@ -108,7 +108,15 @@ textarea{min-height:70px}
 .plink{display:flex;align-items:center;gap:8px;margin-top:6px}
 .plink .thumbs{margin-top:0;flex:none}
 .slotbtn{flex:none;display:flex;align-items:center;justify-content:center;min-width:84px;min-height:48px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:14px;font-weight:700;color:var(--pri)}
-.slotbtn input,label.btn input{display:none}
+.slotbtn input,label.btn input,.cambtn input{display:none}
+.cambtn{flex:none;display:flex;align-items:center;justify-content:center;width:44px;height:44px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:18px}
+.pick{display:flex;align-items:center;gap:8px}
+.pick>.filebtn,.pick>label.btn{flex:1}
+.zoomrow{display:flex;justify-content:center;gap:8px;margin-top:8px}
+.zoomrow:empty{display:none}
+.seq{flex:none;width:28px;height:28px;border-radius:14px;background:#eef1f5;color:var(--sub);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.pos{font-size:14px;font-weight:700;color:var(--sub);text-align:center}
+.pos b{color:var(--tx);font-size:18px}
 label.btn{display:flex;align-items:center;justify-content:center;text-align:center}
 .lnk{display:block;border:none;background:none;color:var(--pri);font-size:14px;text-decoration:underline;padding:10px 0 0;min-height:44px;text-align:left}
 .lnk.on{font-weight:700}
@@ -181,18 +189,20 @@ var CONDITIONS=['未開封','開封済み未使用','使用感あり','傷・欠
 var LABELS=['あり','なし'];
 // 出品に使う写真の枠 [保存する記号, 画面の名前, 撮り方]。枠の無い写真はメモ用
 var SLOTS=[['f','正面','全体が入るように'],['b','裏・ラベル','型番やバーコードの数字が読めるように'],['x','別の角度','光の当たり方を変えて、もう 1 枚'],['d','傷・汚れの所','気になる所を大きく'],['a','付属品','全部並べて']];
-// 状態 [保存する値, 画面の名前]。4 つを別の値で持つ（開封済みを 1 つにまとめない）
-var CONDS=[['new','新品・未開封'],['opened','開封済み・使っていない'],['used','使ったあとがある・きれい'],['damaged','汚れ・傷・破れ・こわれ・におい・欠品がある']];
+// 状態 [保存する値, 画面の名前]。フリマアプリと同じ 6 段階。前からある値（new・opened・used・damaged）は意味を変えずに残す
+var CONDS=[['new','新品、未使用'],['opened','未使用に近い'],['used','目立った傷や汚れなし'],['fair','やや傷や汚れあり'],['damaged','傷や汚れあり'],['bad','全体的に状態が悪い']];
 var COND_BAD='damaged';
+var COND_ASK=['fair','damaged','bad']; // 傷や汚れがある状態。選ぶと「何があるか」を聞く
+function condBad(c){return COND_ASK.indexOf(c)>=0;}
 var COND_OLD={'未開封':'new','開封済み未使用':'opened','使用感あり':'used','傷・欠品':COND_BAD}; // 前の版の「状態」の答え
-// 4 つ目を選んだときに聞く「何があるか」。写真が要るのは PROB_PHOTO の 3 つ（におい・付属品は写真に写らない）
+// 傷や汚れがある状態を選んだときに聞く「何があるか」。写真が要るのは PROB_PHOTO の 3 つ（におい・付属品は写真に写らない）
 var PROBS=[['dirt','汚れ'],['scratch','傷'],['broken','破れ・こわれ'],['smell','におい'],['missing','付属品が足りない']];
 var PROB_PHOTO=['dirt','scratch','broken'];
 var PLACES=[['hem','裾'],['cuff','袖口'],['neck','襟・首まわり'],['front','前'],['back','後ろ'],['bottom','底'],['inside','内側'],['tag','タグ'],['metal','金具'],['other','そのほか']];
 var MISSING=[['box','箱'],['manual','説明書'],['charger','充電器'],['cable','ケーブル'],['strap','ストラップ'],['lid','ふた'],['case','袋・ケース'],['spare','替えの部品'],['other','そのほか']];
 function labelMap(a){var m={};a.forEach(function(x){m[x[0]]=x[1];});return m;}
 var COND_LABEL=labelMap(CONDS),PROB_LABEL=labelMap(PROBS),PLACE_LABEL=labelMap(PLACES),MISSING_LABEL=labelMap(MISSING);
-var SHIPS=[['60','60 まで'],['80','80 まで'],['100','100 まで'],['140','140 まで'],['160','160 まで'],['over','160 より大きい']];
+var SHIPS=[['60','60'],['80','80'],['100','100'],['140','140'],['160','160'],['over','160超']];
 var SHIP_LABEL={};SHIPS.forEach(function(x){SHIP_LABEL[x[0]]=x[1];});
 var FIELD_LABEL={qty:'現物数量',presence:'現物の有無',photo:'写真',candidate:'候補の商品と同じか',url:'参考URL（見つかった場合）',color:'色',size:'サイズ',edition:'版・型番',set:'セット内容（何が何個）',expiry:'賞味期限',storage:'保管状態',condition:'状態',label:'在庫ラベルの有無'};
 // 一覧の「質問」「見るポイント」の社内用語を、画面に出すときだけ言い換える（一覧と保存の形は変えない）
@@ -221,7 +231,6 @@ var draft=null;        // 編集中カードの入力
 var draftKey=null;
 var errFields={};
 var issKey=null;        // 要確認の一覧から開いたカード（保存・戻るで一覧へ戻す）
-var issOpen=false;      // 「困ったことがある」を開いているか
 var imgPending=0;       // 読み込み中の写真の枚数
 var CTX=null;           // {boxes:{箱:[[行,商品名,点数,種別]]},same:{key:{box,sum,on,other}}}
 var bh=null;            // 「この箱が分からないとき」の入力 {box,reason,err,old}
@@ -420,17 +429,18 @@ function updateHome(){
     if(done&&!ST.showDone)return;
     list.push('<button class="box'+(done?' done':'')+'" data-act="box" data-v="'+esc(b.id)+'">'+
       '<div class="l"><b>'+esc(b.id)+'</b>'+(st.later?'<span class="sub" style="color:#8a5a00">保留 '+st.later+'</span>':'')+'</div>'+
-      '<div class="r">'+(done?'<b>完了</b>':'<b>'+st.remain+'</b>/'+st.total)+'</div></button>');
+      '<div class="r">'+(done?'<b>完了</b>':'残り <b>'+st.remain+'</b> / '+st.total+' 件')+'</div></button>');
   });
   $('#boxhead').innerHTML='未完了の箱 '+nf(nRemainBox);
   $('#boxlist').innerHTML=list.length?list.join(''):'<div class="empty">該当する箱はありません</div>';
 }
 
-function rowHTML(it){
+function rowHTML(it,seq){ // seq は箱の中での順番（{行のキー: 番号}）。渡さなければ番号を出さない
   var k=it._key,d=isDone(k),sk=isSkipped(k),r=ST.results[k];
   var badge=d?'<span class="tag dn">'+(r&&r.absent?'現物なし':'確認済み')+'</span>':(sk?'<span class="tag later">保留</span>':'');
   if(r&&r.issues&&r.issues.length)badge+='<span class="tag later">要確認</span>';
   return '<button class="row'+(d?' done':'')+'" data-act="card" data-v="'+esc(k)+'">'+
+    (seq&&seq[k]?'<div class="seq">'+seq[k]+'</div>':'')+
     '<div class="l">'+(badge?'<div class="mt">'+badge+'</div>':'')+
     '<div class="nm">'+esc(it['商品名'])+'</div></div>'+
     '<div class="r">›</div></button>';
@@ -466,14 +476,16 @@ function renderBox(){
     '<div class="btns"><button class="btn pri" data-act="clearflt">絞り込みを外して確認する</button></div>');
   else{
     if(inBox.length)h.push('<div class="note" style="margin-top:0">この箱には、確認しなくてよい物も '+inBox.length+' 件入っています。<b>'+(st.total===b.rows.length?'確認するのは下の '+st.total+' 件だけです':'確認する物は全部で '+b.rows.length+' 件です（絞り込み中のため、下には '+st.total+' 件だけ出ています）')+'</b></div>');
+    if(st.total>1&&!inBox.length)h.push('<div class="note" style="margin-top:0">この箱には、確認する商品が <b>'+st.total+' 件</b>あります。下の順番で、1 件ずつ確認します</div>');
     h.push('<div class="btns"><button class="btn pri" data-act="start">この箱の確認を始める</button></div>');
   }
   h.push('<div class="sec">未完了 '+st.remain+' 件'+(ST.showDone?'（確認済みも表示中）':'')+'</div>');
-  var list=rows.filter(function(it){return ST.showDone||!isDone(it._key);}).map(rowHTML);
+  var seq={};if(rows.length>1)rows.forEach(function(it,i){seq[it._key]=i+1;});
+  var list=rows.filter(function(it){return ST.showDone||!isDone(it._key);}).map(function(it){return rowHTML(it,seq);});
   h.push(list.length?list.join(''):'<div class="empty">表示する商品はありません</div>');
   if(!ST.showDone){
     var flagged=rows.filter(function(it){return isDone(it._key)&&hasIssue(it._key);});
-    if(flagged.length)h.push('<div class="sec">要確認 '+flagged.length+' 件（保存済み）</div>'+flagged.map(rowHTML).join(''));
+    if(flagged.length)h.push('<div class="sec">要確認 '+flagged.length+' 件（保存済み）</div>'+flagged.map(function(it){return rowHTML(it,seq);}).join(''));
   }
   if(rest.length)h.push('<details class="rest"><summary>'+(inBox.length?'確認しなくてよい物 '+inBox.length+' 件':'出荷済みの記録がある物 '+gone.length+' 件')+' ▾</summary>'+inBox.map(restRow).join('')+
     (gone.length?(inBox.length?'<div class="restrow"><div class="mt">出荷済みの記録がある物 '+gone.length+' 件（箱に無いはず）</div></div>':'')+gone.map(restRow).join(''):'')+'</details>');
@@ -558,7 +570,7 @@ function renderBoxHelp(){
   var n=boxTodo(b).length,h=[];
   h.push('<div class="q"><div class="qq">箱の中身を全部並べて、写真を撮ってください</div><div class="pt">文字は書かなくて大丈夫です。担当者が写真を見て確認します</div></div>');
   h.push('<div class="fld'+(bh.err&&!bhNew().length?' err':'')+'" data-fld="photo"><div class="lb">箱の中身の写真<span class="req">必須</span></div>'+
-    photoHTML('＋ 写真を撮る / 選ぶ')+'<div class="emsg">箱の中身を並べた写真を、ここで 1 枚撮ってください</div></div>');
+    photoHTML('＋ 写真を選ぶ')+'<div class="emsg">箱の中身を並べた写真を、ここで 1 枚撮ってください</div></div>');
   h.push('<div class="fld'+(bh.err&&!bh.reason?' err':'')+'" data-fld="reason"><div class="lb">分からないこと<span class="req">必須</span></div>'+
     '<div class="chips">'+BOX_REASONS.map(function(v){
       return '<button class="chip sm'+(bh.reason===v?' on':'')+'" data-act="bhreason" data-v="'+esc(v)+'">'+esc(v)+'</button>';}).join('')+'</div>'+
@@ -599,7 +611,7 @@ function redraw(){if(ST.view==='boxhelp')renderBoxHelp();else renderCard(true);}
 /* ---------- カード ---------- */
 function startDraft(k){
   var r=ST.results[k]||{},it=ST.byKey[k];
-  draftKey=k;errFields={};issOpen=false;
+  draftKey=k;errFields={};
   qtyAuto=!(r.qty===0||r.qty);qtyHand=false;
   draft={
     qty:(r.qty===0||r.qty)?r.qty:qtyDefault(k),
@@ -671,7 +683,7 @@ function linksIn(v){v=String(v||'');return v.charAt(1)===':'?v.slice(2).split('+
 function linksOf(nm){return linksIn(draft.slots&&draft.slots[nm]);}
 function setLinks(nm,ps){draft.slots[nm]='d'+(ps.length?':'+ps.join('+'):'');}
 function photoProbs(){ // 写真が要る問題（選んだ順ではなく決まった順）
-  return draft.cond===COND_BAD?PROB_PHOTO.filter(function(p){return draft.condProblems.indexOf(p)>=0;}):[];
+  return condBad(draft.cond)?PROB_PHOTO.filter(function(p){return draft.condProblems.indexOf(p)>=0;}):[];
 }
 function unlinked(){ // どの写真にも結び付いていない問題
   var ds=slotImgs('d');
@@ -696,14 +708,14 @@ function needSlots(){
 function missSlots(){return needSlots().filter(function(sl){return !slotImgs(sl).length;});}
 function slim(o){ // 新しい項目は、入っているときだけ残す（保存先の 1 行の大きさに収める）
   var sl=o.slots||{},t={},n=0;
-  var pr=o.cond===COND_BAD?(o.condProblems||[]):[],pl={},pn=0;
+  var pr=condBad(o.cond)?(o.condProblems||[]):[],pl={},pn=0;
   (o.images||[]).forEach(function(nm){
     if(!sl[nm])return;
     var c=String(sl[nm]).charAt(0),ls=c==='d'?linksIn(sl[nm]).filter(function(p){return pr.indexOf(p)>=0&&PROB_PHOTO.indexOf(p)>=0;}):[];
     t[nm]=c+(ls.length?':'+ls.join('+'):'');n++;
   });
   if(n)o.slots=t; else delete o.slots;
-  // 状態の内訳は、4 つ目を選んでいるときだけ残す。場所は選んでいる問題の分だけ
+  // 状態の内訳は、傷や汚れがある状態を選んでいるときだけ残す。場所は選んでいる問題の分だけ
   if(pr.length)o.condProblems=pr.slice(); else delete o.condProblems;
   PROB_PHOTO.forEach(function(p){var a=(o.condPlaces||{})[p];if(pr.indexOf(p)>=0&&a&&a.length){pl[p]=a.slice();pn++;}});
   if(pn)o.condPlaces=pl; else delete o.condPlaces;
@@ -717,8 +729,9 @@ function thumbsHTML(ns){
   return ns.map(function(nm){
     return '<div class="thumb"><img src="'+esc(imgSrc(nm))+'" alt=""><button data-act="imgdel" data-v="'+esc(nm)+'">×</button></div>';}).join('');
 }
-var NO_FACE='人の顔・送り状は写さない';
-function shotInput(sl,p){return '<input type="file" accept="image/*" capture="environment" data-act="imgadd" data-slot="'+sl+'"'+(p?' data-p="'+p+'"':'')+'>';}
+// 写真は、加工した画像を写真フォルダから選ぶのが主。その場で撮るカメラは横の小さいボタンにする
+function shotInput(sl,p,cam){return '<input type="file" accept="image/*"'+(cam?' capture="environment"':' multiple')+' data-act="imgadd"'+(sl?' data-slot="'+sl+'"':'')+(p?' data-p="'+p+'"':'')+'>';}
+function camBtn(sl,p){return '<label class="cambtn" aria-label="カメラで撮る">📷'+shotInput(sl,p,true)+'</label>';}
 function chardHTML(){
   return '<button class="lnk'+(draft.colorHard?' on':'')+'" data-act="chard">'+(draft.colorHard?'✓ 色が分かりにくい（もう一度押すと取り消し）':'色が分かりにくい')+'</button>';
 }
@@ -726,8 +739,7 @@ function condHTML(){
   return '<div class="fld'+(errFields.cond?' err':'')+'" data-fld="cond"><div class="lb">商品の状態<span class="req">必須</span></div>'+
     '<div class="chips">'+CONDS.map(function(x){
       return '<button class="chip'+(draft.cond===x[0]?' on':'')+'" data-act="chip" data-k="cond" data-v="'+x[0]+'">'+esc(x[1])+'</button>';}).join('')+'</div>'+
-    '<div class="hint">使ったかどうか迷うときは「'+esc(COND_LABEL.used)+'」を選んでください</div>'+
-    (draft.cond===COND_BAD?condSub('何がありますか（いくつでも）',PROBS,draft.condProblems,'cprob','')+
+    (condBad(draft.cond)?condSub('何がありますか（いくつでも）',PROBS,draft.condProblems,'cprob','')+
       photoProbs().map(function(p){return condSub('「'+PROB_LABEL[p]+'」はどこですか（いくつでも）',PLACES,draft.condPlaces[p]||[],'cplace',p);}).join('')+
       (draft.condProblems.indexOf('missing')>=0?condSub('足りない物はどれですか（いくつでも）',MISSING,draft.missingParts,'cmiss',''):''):'')+
     '<div class="emsg">'+(typeof errFields.cond==='string'?esc(errFields.cond):'1 つ選んでください')+'</div></div>';
@@ -752,16 +764,16 @@ function slotsHTML(colorShown){
     if(!req&&!ims.length&&s[0]!=='a')return;
     h+='<div class="slot'+(first?' first':'')+'"><div class="sl"><div class="sn">'+esc(s[1])+(req?'<span class="req">必須</span>':'<span class="opt">任意</span>')+'</div>'+
       '<div class="hint" style="margin-top:2px">'+esc(s[2])+'</div>'+(ims.length?(s[0]==='d'?dThumbsHTML(ims):'<div class="thumbs">'+thumbsHTML(ims)+'</div>'):'')+'</div>'+
-      '<label class="slotbtn">'+(ims.length?'＋ もう 1 枚':'📷 撮る')+shotInput(s[0])+'</label></div>';
+      '<label class="slotbtn">'+(ims.length?'＋ もう 1 枚':'写真を選ぶ')+shotInput(s[0])+'</label>'+camBtn(s[0])+'</div>';
     first=false;
   });
   return '<div class="fld'+(errFields.slots?' err':'')+'" data-fld="slots"><div class="lb">写真</div>'+h+
-    '<div class="hint">'+NO_FACE+'</div>'+(colorShown?'':chardHTML())+
-    '<div class="emsg">'+(typeof errFields.slots==='string'?esc(errFields.slots):'「'+esc(missSlots().map(slotName).join('」「'))+'」の写真を撮ってください')+'</div></div>';
+    (colorShown?'':chardHTML())+
+    '<div class="emsg">'+(typeof errFields.slots==='string'?esc(errFields.slots):'「'+esc(missSlots().map(slotName).join('」「'))+'」の写真を入れてください')+'</div></div>';
 }
 function shipHTML(){
   return '<div class="fld'+(errFields.shipClass?' err':'')+'" data-fld="shipClass"><div class="lb">箱に入れたときの大きさ<span class="req">必須</span></div>'+
-    '<div class="hint" style="margin:0 0 8px">たて＋よこ＋高さの合計（cm）。だいたいで大丈夫です</div>'+
+    '<div class="hint" style="margin:0 0 8px">3 辺の合計（cm）</div>'+
     '<div class="chips">'+SHIPS.map(function(x){
       return '<button class="chip sm'+(draft.shipClass===x[0]?' on':'')+'" data-act="chip" data-k="shipClass" data-v="'+x[0]+'">'+esc(x[1])+'</button>';}).join('')+'</div>'+
     '<div class="chips" style="margin-top:8px"><button class="chip sm'+(draft.shipIrregular?' on':'')+'" data-act="shipodd">重い・形が箱に収まらない</button></div>'+
@@ -772,7 +784,7 @@ var ISSUE_MIX='サイズ・柄がバラバラ';
 var ISSUES=['確認のしかたが分からない',ISSUE_MIX,'ほかの箱にも同じ物がある','中古・使用感がある','商品名と中身が違う','破損・汚れがある','ラベルや番号が違う','その他'];
 function photoHTML(label,sl){ // sl を渡さなければ全部の写真、'' なら枠の無い写真（メモ用）だけ
   var ns=sl==null?draft.images:slotImgs(sl);
-  return '<label class="filebtn">'+label+'<input type="file" accept="image/*" capture="environment" multiple data-act="imgadd"></label>'+
+  return '<div class="pick"><label class="filebtn">'+label+shotInput('','')+'</label>'+camBtn('','')+'</div>'+
          '<div class="thumbs">'+thumbsHTML(ns)+'</div>'+(ns.length?'<div class="hint">'+ns.length+' 枚'+(draft.images.length>=PHOTO_MAX?'（上限です。これ以上は足せません）':'')+'</div>':'');
 }
 function fldHTML(tk){
@@ -791,7 +803,7 @@ function fldHTML(tk){
          '<input type="number" inputmode="numeric" pattern="[0-9]*" data-k="qty" value="'+esc(draft.qty)+'">'+
          '<button class="qbtn" data-act="q+">＋</button></div><div class="hint">'+reg+'</div>';
   }else if(n==='photo'){
-    body=photoHTML('＋ 写真を撮る / 選ぶ');
+    body=photoHTML('＋ 写真を選ぶ');
   }else if(n==='candidate'){
     var cu=it['候補URL'],ct=it['候補タイトル'];
     body='<div class="cand">'+(ct?'<div><b>'+esc(ct)+'</b></div>':'')+
@@ -843,6 +855,7 @@ function renderCard(keepScroll){
   var b=ST.boxMap[it['箱']],rows=fromIss?[it]:boxRows(b),idx=rows.map(function(x){return x._key;}).indexOf(k);
   setHead(it['箱'],true);
   var h=[];
+  if(!fromIss&&rows.length>1)h.push('<div class="pos">この箱の商品 <b>'+(idx+1)+'</b> / '+rows.length+' 件目（残り '+rows.filter(function(x){return !isDone(x._key);}).length+' 件）</div>');
   h.push('<div class="q"><div class="qq">'+esc(plainWords(it['質問']))+'</div>'+(it['見るポイント']?'<div class="pt">確認する点: '+esc(plainPoint(it['見るポイント']))+'</div>':'')+'</div>');
   h.push('<div class="meta"><div class="nm">'+esc(it['商品名'])+'</div>'+
     ((isDone(k)||isSkipped(k))?'<div class="mt" style="margin-top:6px">'+(isDone(k)?'<span class="tag dn">確認済み（修正する場合は入力し直して保存）</span>':'')+(isSkipped(k)?'<span class="tag later">保留</span>':'')+'</div>':'')+
@@ -869,33 +882,28 @@ function renderCard(keepScroll){
     h.push(slotsHTML(af.some(function(tk){return tk.n==='color';})));
     h.push(shipHTML());
   }
-  if(issOpen||draft.issues.length){
-    h.push('<div class="fld"><div class="lb">困ったこと・気になること<span class="opt">任意</span></div>'+
+  h.push('<div class="fld"><div class="lb">困ったこと・気になること<span class="opt">任意</span></div>'+
       '<div class="chips">'+ISSUES.concat(draft.issues.filter(function(v){return ISSUES.indexOf(v)<0;})).map(function(v){
         return '<button class="chip sm'+(draft.issues.indexOf(v)>=0?' on':'')+'" data-act="issue" data-v="'+esc(v)+'">'+esc(v)+'</button>';}).join('')+'</div>'+
       '<div class="hint">'+(draft.issues.indexOf(ISSUE_MIX)>=0?'全部並べた写真を 1 枚撮ってください。タグが読めないときは、タグも撮ってください。文字は書かなくて大丈夫です':'迷ったら選んでください。担当者があとで確認します')+'</div></div>');
-  }else{
-    h.push('<button class="chip sm" style="align-self:flex-start;margin:4px 0" data-act="issopen">困ったことがある ▾</button>');
-  }
   // 文字を打たなくても、写真を撮るだけで伝えられる（色やサイズは写真から後で読み取る）
   var hasPhoto=af.some(function(tk){return tk.n==='photo';});
   h.push('<div class="fld'+(errFields.note?' err':'')+'" data-fld="note"><div class="lb">メモ<span class="opt">任意</span></div>'+
-    (hasPhoto?'':photoHTML('📷 写真でメモする（タグ・色・気になる所）',''))+
+    (hasPhoto?'':photoHTML('写真でメモする',''))+
     '<textarea data-k="note" maxlength="400" placeholder="文字で書く場合はこちら"'+(hasPhoto?'':' style="margin-top:8px"')+'>'+esc(draft.note)+'</textarea><div class="emsg">'+(typeof errFields.note==='string'?esc(errFields.note):errFields.note===2?'「'+ISSUE_MIX+'」のときは、全部並べた写真を 1 枚撮ってください':'「その他」の内容を、写真か文字で入れてください')+'</div></div>');
-  // 目立つボタンは 1 つ。必須の写真がそろうまでは「写真を撮る」、そろったら同じ場所で「保存して次へ」
-  // 問題ごとの写真が足りないときも、同じ場所で「写真を撮る（問題の名前）」。枚数の上限で撮れないときは担当者に回す
+  // 目立つボタンは 1 つ。必須の写真がそろうまでは「写真を選ぶ」、そろったら同じ場所で「保存して次へ」
+  // 問題ごとの写真が足りないときも、同じ場所で「写真を選ぶ（問題の名前）」。枚数の上限で入らないときは担当者に回す
   var miss=shootOn()?missSlots():[],unl=shootOn()&&!miss.length?unlinked():[];
   var shotP=miss.length?(miss[0]==='d'?unlinked()[0]:''):unl[0],shotSl=miss.length?miss[0]:'d';
   var shotFull=(miss.length||unl.length)&&draft.images.length>=PHOTO_MAX;
   h.push('<div class="btns">'+
     (shotFull?'<button class="btn pri" data-act="later">担当者に見せる（保留）</button><div class="hint" style="text-align:center;margin-top:0">写真は '+PHOTO_MAX+' 枚までです。入りきらないときは担当者が確認します</div>'
-     :(miss.length||unl.length)?'<label class="btn pri">📷 写真を撮る（'+esc(shotP?PROB_LABEL[shotP]:slotName(shotSl))+'）'+shotInput(shotSl,shotP)+'</label><div class="hint" style="text-align:center;margin-top:0">'+NO_FACE+'</div>'
+     :(miss.length||unl.length)?'<div class="pick"><label class="btn pri">写真を選ぶ（'+esc(shotP?PROB_LABEL[shotP]:slotName(shotSl))+'）'+shotInput(shotSl,shotP)+'</label>'+camBtn(shotSl,shotP)+'</div>'
                 :'<button class="btn pri" data-act="save">保存して次へ</button>')+
-    '<button class="btn ngb" data-act="absent">現物なしで保存</button>'+
+    (af.some(function(tk){return tk.n==='presence';})?'':'<button class="btn ngb" data-act="absent">現物なしで保存</button>')+
     '<div class="two"><button class="btn sm" data-act="prev"'+(idx<=0?' disabled':'')+'>← 前へ</button>'+
     '<button class="btn sm" data-act="later">保留にする</button></div>'+
     (fromIss?'<button class="btn sm" data-act="issview">要確認の一覧へ戻る</button>':'<button class="btn sm" data-act="tobox">箱の一覧へ戻る</button>')+'</div>');
-  if(!fromIss)h.push('<div class="hint" style="text-align:center;margin-top:10px">この箱 '+(idx+1)+' / '+rows.length+' 件目</div>');
   $('#app').innerHTML=h.join('');
   if(keepScroll)window.scrollTo(0,sc); else window.scrollTo(0,0);
 }
@@ -932,7 +940,7 @@ function validate(){
   if(shootOn()){
     linkSync();
     if(!draft.cond){errFields.cond=1;ok=false;}
-    else if(draft.cond===COND_BAD){
+    else if(condBad(draft.cond)){
       var noPlace=photoProbs().filter(function(p){return !(draft.condPlaces[p]||[]).length;});
       if(!draft.condProblems.length){errFields.cond='何があるか、1 つ以上選んでください';ok=false;}
       else if(noPlace.length){errFields.cond='「'+PROB_LABEL[noPlace[0]]+'」の場所を選んでください';ok=false;}
@@ -941,7 +949,7 @@ function validate(){
     // 正面 2 枚では足りない。枠ごとに 1 枚以上あるかを見る
     if(missSlots().length){errFields.slots=1;ok=false;}
     // 汚れ・傷・破れやこわれは、問題ごとに写真が 1 枚以上要る
-    else if(unlinked().length){errFields.slots='「'+unlinked().map(function(p){return PROB_LABEL[p];}).join('」「')+'」が写っている写真がありません。写真の横で選ぶか、もう 1 枚撮ってください';ok=false;}
+    else if(unlinked().length){errFields.slots='「'+unlinked().map(function(p){return PROB_LABEL[p];}).join('」「')+'」が写っている写真がありません。写真の横で選ぶか、もう 1 枚入れてください';ok=false;}
     if(!draft.shipClass&&!draft.shipIrregular){errFields.shipClass=1;ok=false;}
   }
   return ok;
@@ -1025,7 +1033,7 @@ async function addImages(files,sl,p){ // sl: 写真の枠（無ければメモ�
       for(qi=0;qi<qs.length&&b64Bytes(data)>MAX_PHOTO;qi++)data=toJpeg(img,1600,qs[qi]);
       if(b64Bytes(data)>MAX_PHOTO)data=toJpeg(img,1280,0.6);
       if(b64Bytes(data)>MAX_PHOTO)data=toJpeg(img,1024,0.6);
-      if(sl&&Math.max(img.width,img.height)<1600)toast('写真が小さめです。カメラで撮った写真を使ってください','warn');
+      if(sl&&Math.max(img.width,img.height)<1600)toast('写真が小さめです。大きい写真があれば差し替えてください','warn');
       var n=1,name;
       do{ name=it['PKGI']+'_'+it['行']+'_'+n+'.jpg'; n++; }while(IMG[name]||draft.images.indexOf(name)>=0);
       IMG[name]={d:data,p:false};
@@ -1349,22 +1357,44 @@ function openSearch(msg){
   ST.view='home';ST.fltOpen=true;render();toast(msg,'warn');
   var q=$('#q');if(q){q.scrollIntoView({block:'center'});q.focus();}
 }
-function stopScan(){if(_scan){var q=_scan;_scan=null;q.stop().catch(function(){}).then(function(){try{q.clear();}catch(e){}});}}
+function stopScan(){_zoom=null;if(_scan){var q=_scan;_scan=null;q.stop().catch(function(){}).then(function(){try{q.clear();}catch(e){}});}}
+// 拡大（ズーム）。使えない端末では何も出さない
+var _zoom=null,ZOOMS=[1,2,3];
+function zoomInit(){
+  try{
+    var z=_scan.getRunningTrackCameraCapabilities().zoomFeature();
+    if(!z.isSupported())return;
+    var mn=z.min(),mx=z.max(),vs=ZOOMS.filter(function(v){return v>=mn&&v<=mx;});
+    if(vs.length<2)return;
+    _zoom=z;zoomSet(vs.indexOf(2)>=0?2:vs[0],vs);
+  }catch(e){_zoom=null;}
+}
+function zoomSet(v,vs){
+  if(!_zoom)return;
+  var row=$('#zoomrow');
+  vs=vs||[].map.call(row.querySelectorAll('button'),function(b){return Number(b.getAttribute('data-v'));});
+  try{var p=_zoom.apply(v);if(p&&p.catch)p.catch(function(){});}catch(e){return;}
+  row.innerHTML=vs.map(function(x){return '<button class="chip sm'+(x===v?' on':'')+'" data-act="zoom" data-v="'+x+'">×'+x+'</button>';}).join('');
+}
 function openScan(){
   if(!window.Html5Qrcode){openSearch('カメラを起動できません。箱番号を入力して検索してください');return;}
-  $('#sheetin').innerHTML='<h3>バーコード読取</h3><div id="readerwrap" style="width:100%;overflow:hidden;border-radius:10px;background:#000"><div id="reader"></div></div><p style="margin:8px 0 0;font-size:13px;color:var(--sub)">枠の中にバーコード全体が入れば、離れていても読み取れます</p><div class="btns"><button class="btn" data-act="typecode">箱番号を入力して検索</button><button class="btn" data-act="closesheet">閉じる</button></div>';
+  $('#sheetin').innerHTML='<h3>バーコード読取</h3><div id="readerwrap" style="width:100%;overflow:hidden;border-radius:10px;background:#000"><div id="reader"></div></div><div id="zoomrow" class="zoomrow"></div><p style="margin:8px 0 0;font-size:13px;color:var(--sub)">枠の中にバーコード全体を入れてください。読めないときは下の ×2・×3 で拡大できます</p><div class="btns"><button class="btn" data-act="typecode">箱番号を入力して検索</button><button class="btn" data-act="closesheet">閉じる</button></div>';
   $('#sheet').classList.add('open');
   // 読取用の画像は表示サイズ（CSSピクセル）で作られる。内部を大きく組んで縮小表示し、離れた小さいバーコードも解像できるようにする
-  var wrap=$('#readerwrap'),rd=$('#reader'),vw=wrap.clientWidth||320,W=Math.max(vw,Math.min(1440,vw*4)),sc=vw/W;
+  var wrap=$('#readerwrap'),rd=$('#reader'),vw=wrap.clientWidth||320,W=Math.max(vw,Math.min(1920,vw*6)),sc=vw/W;
   rd.style.width=W+'px';rd.style.transformOrigin='0 0';rd.style.transform='scale('+sc+')';
   function fit(){
     if(!_scan||!rd.isConnected)return;
     var h=rd.offsetHeight*sc,H=Math.min(h,Math.round(vw*.75));
     wrap.style.height=Math.round(H)+'px';rd.style.marginTop=-Math.round((h-H)/2)+'px';
   }
-  _scan=new Html5Qrcode('reader');
+  // 箱・袋のラベルで使う形式だけを読む（商品の JAN を箱番号として読まないため）
+  var F=window.Html5QrcodeSupportedFormats;
+  _scan=F?new Html5Qrcode('reader',{formatsToSupport:[F.CODE_128,F.CODE_39,F.CODE_93,F.CODABAR,F.ITF,F.QR_CODE],verbose:false}):new Html5Qrcode('reader');
+  _zoom=null;
+  // 離れたバーコードは 1 本の線が細く写る。カメラの解像度を上げ、拡大できる端末は最初から 2 倍にする
   _scan.start({facingMode:'environment'},{fps:10,disableFlip:true,qrbox:{width:Math.round(W*.9),height:Math.round(W*.45)},
-    videoConstraints:{facingMode:'environment',width:{ideal:1920},height:{ideal:1440}}},function(txt){
+    videoConstraints:{facingMode:'environment',width:{ideal:3840},height:{ideal:2160}}},function(txt){
     var hit=findCode(ST.items,txt),box=hit.box,one=hit.one,bag=hit.bag;
     txt=hit.code;closeSheet();
     if(box.length){draftKey=null;ST.filters.q='';ST.boxId=txt;ST.view='box';render();
@@ -1383,7 +1413,7 @@ function openScan(){
       ST.view='home';ST.filters.q='';render();openOutside(txt);return;
     }
     ST.view='home';ST.filters.q=txt;render();toast('読み取り: '+txt+'（該当 '+one.length+' 件）');
-  },function(){}).then(function(){fit();setTimeout(fit,600);}).catch(function(){closeSheet();openSearch('カメラを起動できません。箱番号を入力して検索してください');});
+  },function(){}).then(function(){fit();setTimeout(fit,600);zoomInit();}).catch(function(){closeSheet();openSearch('カメラを起動できません。箱番号を入力して検索してください');});
 }
 
 /* ---------- イベント ---------- */
@@ -1434,7 +1464,6 @@ document.addEventListener('click',function(e){
     var k=t.getAttribute('data-k');
     draft[k]=(draft[k]===v)?'':v;saveDraft();renderCard(true);
   }
-  else if(act==='issopen'){issOpen=true;renderCard(true);}
   else if(act==='issue'){
     var ii=draft.issues.indexOf(v);if(ii>=0)draft.issues.splice(ii,1);else draft.issues.push(v);
     if(v===ISSUE_MIX){if(ii>=0)delete mixOld[draftKey];else mixOld[draftKey]=draft.images.slice();}
@@ -1507,6 +1536,7 @@ document.addEventListener('click',function(e){
   });}
   else if(act==='typecode'){closeSheet();openSearch('箱番号を入力して検索してください');}
   else if(act==='closesheet'){closeSheet();}
+  else if(act==='zoom'){zoomSet(Number(v));}
 });
 // 送れなかった分は、次の操作時（間引き 20 秒）とオンライン復帰時に再送する。進捗の取り直しは 60 秒おき
 document.addEventListener('click',function(e){
@@ -1596,7 +1626,7 @@ var LS_INTRO='physcheck_v4_intro';
 function showIntro(){
   try{if(localStorage.getItem(LS_INTRO))return;}catch(e){}
   var d=document.createElement('div');d.className='intro';d.id='intro';
-  d.innerHTML='<div class="in"><ol><li>箱のバーコードを読み取る</li><li>質問に答えて、写真を撮る（正面と、裏・ラベル）</li><li>箱内の商品がすべて終わったら次の箱へ</li></ol>'+
+  d.innerHTML='<div class="in"><ol><li>箱のバーコードを読み取る</li><li>質問に答えて、写真を入れる（正面と、裏・ラベル）</li><li>箱内の商品がすべて終わったら次の箱へ</li></ol>'+
     '<button class="btn pri" data-act="introok" style="width:100%">はじめる</button></div>';
   document.body.appendChild(d);
 }
