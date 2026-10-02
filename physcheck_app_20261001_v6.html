@@ -109,7 +109,7 @@ textarea{min-height:70px}
 .plink .thumbs{margin-top:0;flex:none}
 .slotbtn{flex:none;display:flex;align-items:center;justify-content:center;min-width:84px;min-height:48px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:14px;font-weight:700;color:var(--pri)}
 .slotbtn input,label.btn input,.cambtn input{display:none}
-.cambtn{flex:none;display:flex;align-items:center;justify-content:center;width:44px;height:44px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:18px}
+.cambtn{flex:none;display:flex;align-items:center;justify-content:center;min-width:44px;height:44px;padding:0 10px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:13px;color:var(--sub)}
 .pick{display:flex;align-items:center;gap:8px}
 .pick>.filebtn,.pick>label.btn{flex:1}
 .zoomrow{display:flex;justify-content:center;gap:8px;margin-top:8px}
@@ -731,7 +731,7 @@ function thumbsHTML(ns){
 }
 // 写真は、加工した画像を写真フォルダから選ぶのが主。その場で撮るカメラは横の小さいボタンにする
 function shotInput(sl,p,cam){return '<input type="file" accept="image/*"'+(cam?' capture="environment"':' multiple')+' data-act="imgadd"'+(sl?' data-slot="'+sl+'"':'')+(p?' data-p="'+p+'"':'')+'>';}
-function camBtn(sl,p){return '<label class="cambtn" aria-label="カメラで撮る">📷'+shotInput(sl,p,true)+'</label>';}
+function camBtn(sl,p){return '<label class="cambtn" aria-label="カメラで撮る">カメラ'+shotInput(sl,p,true)+'</label>';}
 function chardHTML(){
   return '<button class="lnk'+(draft.colorHard?' on':'')+'" data-act="chard">'+(draft.colorHard?'✓ 色が分かりにくい（もう一度押すと取り消し）':'色が分かりにくい')+'</button>';
 }
@@ -855,7 +855,7 @@ function renderCard(keepScroll){
   var b=ST.boxMap[it['箱']],rows=fromIss?[it]:boxRows(b),idx=rows.map(function(x){return x._key;}).indexOf(k);
   setHead(it['箱'],true);
   var h=[];
-  if(!fromIss&&rows.length>1)h.push('<div class="pos">この箱の商品 <b>'+(idx+1)+'</b> / '+rows.length+' 件目（残り '+rows.filter(function(x){return !isDone(x._key);}).length+' 件）</div>');
+  if(!fromIss&&rows.length>1)h.push('<div class="pos">この箱の商品 <b>'+(idx+1)+'</b> / '+rows.length+' 件目（残り '+rows.filter(function(x){return x._key!==k&&!isDone(x._key);}).length+' 件）</div>');
   h.push('<div class="q"><div class="qq">'+esc(plainWords(it['質問']))+'</div>'+(it['見るポイント']?'<div class="pt">確認する点: '+esc(plainPoint(it['見るポイント']))+'</div>':'')+'</div>');
   h.push('<div class="meta"><div class="nm">'+esc(it['商品名'])+'</div>'+
     ((isDone(k)||isSkipped(k))?'<div class="mt" style="margin-top:6px">'+(isDone(k)?'<span class="tag dn">確認済み（修正する場合は入力し直して保存）</span>':'')+(isSkipped(k)?'<span class="tag later">保留</span>':'')+'</div>':'')+
@@ -1038,7 +1038,10 @@ async function addImages(files,sl,p){ // sl: 写真の枠（無ければメモ�
       do{ name=it['PKGI']+'_'+it['行']+'_'+n+'.jpg'; n++; }while(IMG[name]||draft.images.indexOf(name)>=0);
       IMG[name]={d:data,p:false};
       draft.images.push(name);
-      if(sl)draft.slots[name]=sl+(sl==='d'&&p?':'+p:'');
+      // まとめて選んだ 2 枚目からは、まだ写真が無い枠（正面 → 裏・ラベル → 別の角度）へ順に入れる
+      var use=sl;
+      if(sl&&sl!=='d'&&i>0){var ms=missSlots().filter(function(x){return x!=='d';});if(ms.length)use=ms[0];}
+      if(use)draft.slots[name]=use+(use==='d'&&p?':'+p:'');
     }catch(e){toast('画像の読み込みに失敗しました','ng');}
     imgPending=Math.max(0,imgPending-1);
   }
@@ -1367,6 +1370,7 @@ function zoomInit(){
     var mn=z.min(),mx=z.max(),vs=ZOOMS.filter(function(v){return v>=mn&&v<=mx;});
     if(vs.length<2)return;
     _zoom=z;zoomSet(vs.indexOf(2)>=0?2:vs[0],vs);
+    var zh=$('#zoomhint');if(zh)zh.hidden=false;
   }catch(e){_zoom=null;}
 }
 function zoomSet(v,vs){
@@ -1378,7 +1382,7 @@ function zoomSet(v,vs){
 }
 function openScan(){
   if(!window.Html5Qrcode){openSearch('カメラを起動できません。箱番号を入力して検索してください');return;}
-  $('#sheetin').innerHTML='<h3>バーコード読取</h3><div id="readerwrap" style="width:100%;overflow:hidden;border-radius:10px;background:#000"><div id="reader"></div></div><div id="zoomrow" class="zoomrow"></div><p style="margin:8px 0 0;font-size:13px;color:var(--sub)">枠の中にバーコード全体を入れてください。読めないときは下の ×2・×3 で拡大できます</p><div class="btns"><button class="btn" data-act="typecode">箱番号を入力して検索</button><button class="btn" data-act="closesheet">閉じる</button></div>';
+  $('#sheetin').innerHTML='<h3>バーコード読取</h3><div id="readerwrap" style="width:100%;overflow:hidden;border-radius:10px;background:#000"><div id="reader"></div></div><div id="zoomrow" class="zoomrow"></div><p style="margin:8px 0 0;font-size:13px;color:var(--sub)">枠の中にバーコード全体を入れてください<span id="zoomhint" hidden>。読めないときは上の ×1・×2・×3 で大きさを変えられます</span></p><div class="btns"><button class="btn" data-act="typecode">箱番号を入力して検索</button><button class="btn" data-act="closesheet">閉じる</button></div>';
   $('#sheet').classList.add('open');
   // 読取用の画像は表示サイズ（CSSピクセル）で作られる。内部を大きく組んで縮小表示し、離れた小さいバーコードも解像できるようにする
   var wrap=$('#readerwrap'),rd=$('#reader'),vw=wrap.clientWidth||320,W=Math.max(vw,Math.min(1920,vw*6)),sc=vw/W;
