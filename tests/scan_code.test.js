@@ -15,7 +15,7 @@ function pick(name){
   }
   throw new Error('関数の終わりが見つかりません: '+name);
 }
-var names=['num','parseCSV','csvToItems','parseFields','normCode','findCode'];
+var names=['num','parseCSV','csvToItems','parseFields','normCode','findCode','qText','qHit'];
 var app=new Function(names.map(pick).join('\n')+'\nreturn {'+names.map(function(n){return n+':'+n;}).join(',')+'};')();
 
 var csvName=/var CSV_URL='([^']+)'/.exec(html)[1];
@@ -54,4 +54,18 @@ test('作業リストに無い番号はどれにも当たらない',function(){
   var hit=app.findCode(items,'bu-99999999');
   assert.strictEqual(hit.code,'BU-99999999');
   assert.strictEqual(hit.box.length+hit.one.length+hit.bag.length,0);
+});
+
+// 検索欄：番号を途中まで打った時点で、その箱が候補に残る（桁を足して 0 件にしない）
+var partial={'途中まで':'BU-0073','途中まで・小文字・ハイフンなし':'bu0073','全部':'BU-00731744','ハイフンなし':'bu00731744','0 落ち':'BU-731744'};
+Object.keys(partial).forEach(function(label){
+  test('検索欄の箱の番号（'+label+'）で箱が残る',function(){
+    var q=app.qText(partial[label]);
+    assert.ok(app.qHit(BOX.toLowerCase(),q),q);
+  });
+});
+test('検索欄の商品名はそのまま探す',function(){
+  assert.strictEqual(app.qText(' ジャケット '),'ジャケット');
+  assert.ok(app.qHit('bu-00731744 ジャケット','ジャケット'));
+  assert.ok(!app.qHit('bu-00731744 ジャケット','BU-0099'));
 });

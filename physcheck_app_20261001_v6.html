@@ -65,6 +65,7 @@ textarea{min-height:70px}
 .btn.pri{background:var(--pri);border-color:var(--pri);color:#fff}
 .btn.ngb{background:#fff;border-color:var(--ng);color:var(--ng)}
 .btn.sm{min-height:56px;font-size:15px}
+.btn:disabled{opacity:.4}
 .btns{display:flex;flex-direction:column;gap:8px;margin-top:14px}
 .btns .two{display:flex;gap:8px}
 .btns .two .btn{flex:1}
@@ -76,7 +77,7 @@ textarea{min-height:70px}
 .meta dl{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:10px 0 0;font-size:13px}
 .meta dt{color:var(--sub)}
 .meta dd{margin:0;word-break:break-all}
-.meta a{color:var(--pri)}
+.meta a{color:var(--pri);display:inline-flex;align-items:center;min-height:44px;padding-right:12px}
 .cand{margin-top:10px;background:#fffdf3;border:1px solid #f0e2b8;border-radius:10px;padding:10px;font-size:13px}
 .fld{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:10px}
 .fld.err{border-color:var(--ng);box-shadow:0 0 0 2px rgba(217,48,37,.15)}
@@ -331,14 +332,25 @@ function buildIndex(){
     b.monthList=Object.keys(b.months); b.bagCount=Object.keys(b.bags).length;
   });
 }
+function qText(v){ // 検索欄の文字。番号の途中まで（例: BU-0073）は桁を足さず、打ったところまでで探す
+  v=String(v).trim();
+  var m=v.replace(/\s+/g,'').match(/^(BU|PKGI|PKG)-?(\d+)$/i);
+  if(!m)return v;
+  return m[2].length>=8?normCode(v):m[1].toUpperCase()+'-'+m[2];
+}
+function qHit(hay,q){ // 打ったままで当たらないときだけ、頭の 0 を省いた番号（例: BU-731744）として探し直す
+  q=String(q).toLowerCase();
+  if(hay.indexOf(q)>=0)return true;
+  var nc=normCode(q).toLowerCase();
+  return nc!==q&&hay.indexOf(nc)>=0;
+}
 function matchFilter(it){
   var f=ST.filters;
   if(f.month&&it['月']!==f.month)return false;
   if(f.task&&it['task']!==f.task)return false;
   if(f.q){
-    var q=f.q.toLowerCase();
     var hay=(it['PKGI']+' '+it['商品名']+' '+it['行']+' '+it['箱']+' '+it['袋']+' '+it['task名']).toLowerCase();
-    if(hay.indexOf(q)<0)return false;
+    if(!qHit(hay,f.q))return false;
   }
   return true;
 }
@@ -419,7 +431,7 @@ function rowHTML(it){
   var badge=d?'<span class="tag dn">'+(r&&r.absent?'現物なし':'確認済み')+'</span>':(sk?'<span class="tag later">保留</span>':'');
   if(r&&r.issues&&r.issues.length)badge+='<span class="tag later">要確認</span>';
   return '<button class="row'+(d?' done':'')+'" data-act="card" data-v="'+esc(k)+'">'+
-    '<div class="l"><div class="mt">'+badge+'行'+esc(it['行'])+'</div>'+
+    '<div class="l">'+(badge?'<div class="mt">'+badge+'</div>':'')+
     '<div class="nm">'+esc(it['商品名'])+'</div></div>'+
     '<div class="r">›</div></button>';
 }
@@ -948,7 +960,8 @@ function commit(mode){ // mode: save | absent | later。保存できたら true
   qtySync();linkSync();
   var k=draftKey,prev=ST.results[k]||{},o=slim(Object.assign({},prev,draft));
   if(mode==='absent'){o.absent=true;o.qty=0;o.skipped=false;o.checkedAt=nowISO();}
-  else if(mode==='later'){o.skipped=true;o.checkedAt=nowISO();}
+  // 「現物なし」で保存した商品を保留に変えたら、現物なしの印と 0 個を外す（確認済みの扱いで一覧から消えないように）
+  else if(mode==='later'){if(o.absent===true){delete o.absent;delete o.qty;}o.skipped=true;o.checkedAt=nowISO();}
   else{o.absent=draft.absent===true;o.skipped=false;o.checkedAt=nowISO();o.qty=num(draft.qty,0);}
   // 同じ名前の行の合計で数えた数量には印を付ける（行ごとの数量と区別する）
   // 箱の中身の一覧が読めていないときは、前に付いた印を消さない（合計の数だけ残って行ごとの数に見えるのを防ぐ）
@@ -1265,6 +1278,14 @@ function openSheet(){
     '<button class="btn" data-act="closesheet">閉じる</button></div>';
   $('#sheet').classList.add('open');
 }
+function openAbsent(){ // 押し間違いで「現物なし」を保存しないよう、保存の前に 1 回確かめる
+  $('#sheetin').innerHTML='<h3>現物なしで保存しますか？</h3>'+
+    '<div class="hint" style="margin:0 0 12px">箱の中を探しても見つからないときだけ押してください</div>'+
+    '<div class="btns">'+
+    '<button class="btn ngb" data-act="absentok">現物なしで保存</button>'+
+    '<button class="btn" data-act="closesheet">戻る</button></div>';
+  $('#sheet').classList.add('open');
+}
 function closeSheet(){stopScan();$('#sheet').classList.remove('open');}
 var _scan=null;
 function colorParts(s){ // 「青×1・黄×2」→ [{c:'青',n:1},{c:'黄',n:2}]。1 色なら [{c:'青',n:null}]
@@ -1371,8 +1392,8 @@ document.addEventListener('click',function(e){
   if(!t)return;
   var act=t.getAttribute('data-act'),v=t.getAttribute('data-v');
   // 最初のクラウド読込が終わる前に保存すると、古い下書きで新しい答えを上書きしてしまう
-  if(!CLOUD_READY&&((act==='pres'&&v==='no')||act==='save'||act==='absent'||act==='later'||act==='boxhelpok')){toast('読み込み中です。少し待ってから保存してください','warn');return;}
-  if(imgPending>0&&((act==='pres'&&v==='no')||act==='save'||act==='absent'||act==='later'||act==='boxhelpok')){toast('写真を読み込み中です。少し待ってから保存してください','warn');return;}
+  if(!CLOUD_READY&&((act==='pres'&&v==='no')||act==='save'||act==='absent'||act==='absentok'||act==='later'||act==='boxhelpok')){toast('読み込み中です。少し待ってから保存してください','warn');return;}
+  if(imgPending>0&&((act==='pres'&&v==='no')||act==='save'||act==='absent'||act==='absentok'||act==='later'||act==='boxhelpok')){toast('写真を読み込み中です。少し待ってから保存してください','warn');return;}
   if(act==='fm'){ST.filters.month=v;renderHome();}
   else if(act==='ft'){ST.filters.task=v;renderHome();}
   else if(act==='issview'){ST.view='issues';draftKey=null;render();}
@@ -1391,7 +1412,7 @@ document.addEventListener('click',function(e){
     draft.qty=Math.max(0,num(draft.qty,0)+(act==='q+'?1:-1));qtyTouch();saveDraft();renderCard(true);
   }
   else if(act==='pres'){
-    if(v==='no'){draft.absent=true;draft.qty=0;if(commitOrShow('absent')){toast('現物なしで保存','ok');gotoNext();}return;}
+    if(v==='no'){openAbsent();return;}
     draft.absent=false;if(num(draft.qty,0)<1)draft.qty=qtyDefault(draftKey);saveDraft();renderCard(true);
   }
   else if(act==='cand'){draft.candidateOk=(v==='1');saveDraft();renderCard(true);}
@@ -1462,7 +1483,12 @@ document.addEventListener('click',function(e){
       var el=document.querySelector('.fld.err');if(el)el.scrollIntoView({block:'center'});return;}
     if(commitOrShow('save')){toast('保存しました ✓','ok');gotoNext();}
   }
-  else if(act==='absent'){draft.absent=true;draft.qty=0;if(commitOrShow('absent')){toast('現物なしで保存','ok');gotoNext();}}
+  else if(act==='absent'){openAbsent();}
+  else if(act==='absentok'){
+    closeSheet();
+    if(!draft||ST.view!=='card')return;
+    draft.absent=true;draft.qty=0;if(commitOrShow('absent')){toast('現物なしで保存','ok');gotoNext();}
+  }
   else if(act==='later'){if(commitOrShow('later')){toast('保留にしました','warn');gotoNext();}}
   else if(act==='prev'){
     var it=ST.byKey[draftKey],bb=ST.boxMap[it['箱']],ks=boxRows(bb).map(function(x){return x._key;});
@@ -1488,7 +1514,7 @@ document.addEventListener('click',function(e){
   if(_cloudP||(!CLOUD_OK&&Date.now()-_lastCloud>20000)||(CLOUD_OK&&!_flushing&&Date.now()-_lastCloud>60000)){
     var t=e.target.closest&&e.target.closest('[data-act]'),act=t&&t.getAttribute('data-act');
     // 「担当者に回す」は押すたびに自分で取り直すので、ここでは待たせない
-    if(act==='save'||act==='absent'||act==='later'||(act==='pres'&&t.getAttribute('data-v')==='no')){
+    if(act==='save'||act==='absentok'||act==='later'){
       // 保存の押下は取り込み終わってから押し直す（古い下書きで新しい答えを上書きしない）
       e.stopPropagation();e.preventDefault();
       var dk=draftKey,d=draft;
@@ -1510,11 +1536,24 @@ document.addEventListener('change',function(e){
   if(t.id==='ft'){ST.filters.task=t.value;updateHome();return;}
   if(t.getAttribute&&t.getAttribute('data-act')==='imgadd'&&t.files&&t.files.length){addImages(Array.prototype.slice.call(t.files),t.getAttribute('data-slot')||'',t.getAttribute('data-p')||'');t.value='';}
 });
+// キーボードが出たあとも入力欄が見えるように、文字を入れる欄は画面の中ほどへ寄せる
+document.addEventListener('focusin',function(e){
+  var t=e.target;
+  if(!t.matches||!t.matches('input[type=text],input[type=search],input[type=number]:not([readonly]),input[type=url],textarea'))return;
+  setTimeout(function(){
+    if(document.activeElement!==t)return;
+    var vv=window.visualViewport,r=t.getBoundingClientRect();
+    // キーボードで狭くなった見えている範囲の中ほどへ寄せる（すでに見えている欄は動かさない）
+    if(!vv){t.scrollIntoView({block:'center'});return;}
+    var top=vv.offsetTop,bot=vv.offsetTop+vv.height;
+    if(r.top<top+60||r.bottom>bot-90)window.scrollBy(0,r.top+r.height/2-(top+vv.height/2));
+  },350);
+});
 var _qT=null;
 document.addEventListener('input',function(e){
   var t=e.target,k=t.getAttribute&&t.getAttribute('data-k');
   if(t.id==='q'){
-    clearTimeout(_qT);_qT=setTimeout(function(){var v=t.value.trim(),nc=normCode(v);ST.filters.q=/^(BU|PKGI|PKG)-\d{8}$/.test(nc)?nc:v;updateHome();},220);return;
+    clearTimeout(_qT);_qT=setTimeout(function(){ST.filters.q=qText(t.value);updateHome();},220);return;
   }
   if(k==='qty'&&draft&&colorParts(draft.color).length>=2)return;
   var cq=t.getAttribute&&t.getAttribute('data-cq');
