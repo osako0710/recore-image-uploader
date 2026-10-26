@@ -1,0 +1,9 @@
+// 写真枚数と主ボタンの遷移を、公開する画面の関数で確かめる
+var test=require('node:test'),assert=require('node:assert'),fs=require('fs'),path=require('path');
+var html=fs.readFileSync(path.join(__dirname,'..','zigzag_shoot_20261026_v1.html'),'utf8');
+function pick(name){var start=html.indexOf('\nfunction '+name+'(');if(start<0)throw new Error('関数が見つかりません: '+name);var i=html.indexOf('{',start),depth=0,quote='',escape=false;for(;i<html.length;i++){var c=html[i];if(quote){if(escape)escape=false;else if(c==='\\')escape=true;else if(c===quote)quote='';continue;}if(c==='"'||c==="'"){quote=c;continue;}if(c==='{')depth++;else if(c==='}'){depth--;if(!depth)return html.slice(start,i+1);}}throw new Error('関数の終わりが見つかりません: '+name);}
+var app=new Function(pick('photoRule')+'\n'+pick('primaryState')+'\nreturn {photoRule:photoRule,primaryState:primaryState};')();
+test('写真は2枚で登録準備に入り、8枚で追加を止める',function(){assert.deepStrictEqual(app.photoRule(1),{enough:false,full:false,remaining:7});assert.deepStrictEqual(app.photoRule(2),{enough:true,full:false,remaining:6});assert.deepStrictEqual(app.photoRule(8),{enough:true,full:true,remaining:0});});
+test('主ボタンは工程ごとに1つの役割へ切り替わる',function(){assert.deepStrictEqual(app.primaryState({stage:'label',workerValid:true}),{action:'scan',label:'袋のラベルを読む',enabled:true});assert.deepStrictEqual(app.primaryState({stage:'photos',photos:1,ready:false}),{action:'photo',label:'写真を撮る（あと1枚）',enabled:true});assert.deepStrictEqual(app.primaryState({stage:'photos',photos:2,ready:true}),{action:'save',label:'登録して次へ',enabled:true});assert.deepStrictEqual(app.primaryState({stage:'receipt'}),{action:'next',label:'次の商品へ',enabled:true});});
+test('使えないURLでは最初の主ボタンを押せない',function(){assert.strictEqual(app.primaryState({stage:'label',workerValid:false}).enabled,false);});
+test('登録できない間は主ボタンに足りないものを出す',function(){assert.deepStrictEqual(app.primaryState({stage:'photos',photos:2,ready:false,waiting:'商品の状態を選んでください'}),{action:'save',label:'商品の状態を選んでください',enabled:false});});
