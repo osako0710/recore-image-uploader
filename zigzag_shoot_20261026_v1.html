@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="format-detection" content="telephone=no">
+<title>商品撮影</title>
+<style>
+:root{--bg:#f5f3ee;--card:#fff;--line:#ddd8ce;--text:#24231f;--sub:#6d6a62;--main:#176b54;--main-dark:#0f503e;--soft:#e8f2ee;--warn:#9a5c00;--danger:#b12b26}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;max-width:100%;overflow-x:hidden}
+body{background:var(--bg);color:var(--text);font:16px/1.5 -apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",sans-serif;padding-bottom:calc(104px + env(safe-area-inset-bottom))}
+button,input,textarea{font:inherit;color:inherit}
+button{touch-action:manipulation}
+.status{position:sticky;top:0;z-index:20;width:100%;min-height:46px;padding:12px 14px;background:#203b34;color:#fff;text-align:center;font-size:14px;font-weight:700;padding-top:calc(12px + env(safe-area-inset-top))}
+.status.warn{background:#765019}.status.bad{background:#8a2925}
+main{width:100%;max-width:560px;margin:0 auto;padding:12px}
+.intro{margin-bottom:12px;padding:12px 14px;border:1px solid #c9d9d2;border-radius:14px;background:#f2f8f5;font-size:14px}
+.intro p{margin:2px 0}
+.card{margin-bottom:12px;padding:16px;border:1px solid var(--line);border-radius:16px;background:var(--card);box-shadow:0 2px 10px rgba(42,38,29,.04)}
+.card h1,.card h2{margin:0;overflow-wrap:anywhere}
+.card h1{font-size:23px;line-height:1.35}.card h2{font-size:17px}
+.hint{margin:6px 0 0;color:var(--sub);font-size:13px}
+.step{display:flex;align-items:center;gap:10px;margin-bottom:12px;color:var(--sub);font-size:13px;font-weight:700}
+.step span{display:grid;width:27px;height:27px;place-items:center;border-radius:50%;background:var(--soft);color:var(--main)}
+.photo-row{display:flex;gap:8px;overflow-x:auto;padding:2px 0 8px;scrollbar-width:none}.photo-row::-webkit-scrollbar{display:none}
+.thumb{position:relative;flex:0 0 92px;height:92px;border-radius:12px;overflow:hidden;background:#ece9e2}
+.thumb img{width:100%;height:100%;object-fit:cover}
+.thumb button{position:absolute;top:4px;right:4px;width:32px;height:32px;border:0;border-radius:50%;background:rgba(0,0,0,.72);color:#fff;font-size:20px;line-height:1}
+.text-link{display:inline-flex;min-height:44px;align-items:center;border:0;background:none;padding:4px 0;color:var(--main);text-decoration:underline;font-size:14px}
+.loading{margin:10px 0;color:var(--sub);font-size:14px}
+.choices{display:grid;gap:8px;margin-top:12px}
+.choice{width:100%;min-height:54px;padding:11px 12px;border:1px solid var(--line);border-radius:12px;background:#fff;text-align:left;overflow-wrap:anywhere}
+.choice.on{border:2px solid var(--main);background:var(--soft);font-weight:700}
+.condition{display:grid;grid-template-columns:1fr;gap:8px;margin-top:12px}
+.condition button{min-height:50px;border:1px solid var(--line);border-radius:12px;background:#fff;text-align:left;padding:10px 12px}
+.condition button.on{border:2px solid var(--main);background:var(--soft);font-weight:700}
+.quantity{display:flex;align-items:center;justify-content:space-between;margin-top:16px}
+.counter{display:flex;align-items:center;gap:14px}.counter button{width:48px;height:48px;border:1px solid var(--line);border-radius:50%;background:#fff;font-size:24px}.counter output{min-width:28px;text-align:center;font-size:21px;font-weight:700}
+details{margin-top:16px;border-top:1px solid var(--line);padding-top:8px}summary{min-height:44px;padding:11px 0;color:var(--main);font-weight:700;cursor:pointer}
+label{display:block;margin:12px 0 4px;font-size:13px;font-weight:700;color:var(--sub)}
+input[type=text],textarea{display:block;width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:16px}
+textarea{min-height:90px;resize:vertical}.count{text-align:right;color:var(--sub);font-size:12px}
+.primary-wrap{position:fixed;right:0;bottom:0;left:0;z-index:15;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(245,243,238,.96) 18%,var(--bg) 38%)}
+.primary{display:block;width:100%;max-width:536px;min-height:60px;margin:0 auto;border:0;border-radius:14px;background:var(--main);color:#fff;font-size:18px;font-weight:800;box-shadow:0 5px 16px rgba(23,107,84,.22)}
+.primary:active{background:var(--main-dark)}.primary:disabled{background:#a5aaa6;box-shadow:none}
+.receipt{text-align:center;padding:28px 16px}.management{margin:16px 0 4px;color:var(--main);font-size:42px;font-weight:900;letter-spacing:.05em;overflow-wrap:anywhere}.receipt p{margin:0;font-weight:700}
+.error{margin:10px 0 0;color:var(--danger);font-size:14px;font-weight:700}
+.scan-layer{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;background:#0d1411;color:#fff;padding:calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom))}
+.scan-layer[hidden]{display:none}.scan-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.scan-head h2{margin:0;font-size:18px}.scan-head button{min-width:44px;min-height:44px;border:0;background:none;color:#fff;text-decoration:underline}
+#reader-wrap{flex:1;display:flex;align-items:center;overflow:hidden;border-radius:14px;background:#000;margin-top:12px}#reader{width:100%}.scan-layer p{text-align:center;font-size:14px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(min-width:500px){.condition{grid-template-columns:1fr 1fr 1fr}.condition button{text-align:center}}
+</style>
+</head>
+<body>
+<div id="status" class="status" role="status" aria-live="polite">準備しています</div>
+<main>
+  <section id="intro" class="intro" hidden>
+    <p>1. 袋のラベルを読みます</p>
+    <p>2. 正面と、裏かタグを撮ります</p>
+    <p>3. 商品と状態を選んで登録します</p>
+  </section>
+  <div id="app"></div>
+</main>
+<div class="primary-wrap"><button id="primary" class="primary" type="button">袋のラベルを読む</button></div>
+<input id="photo-input" class="sr-only" type="file" accept="image/*" capture="environment">
+<section id="scan-layer" class="scan-layer" hidden aria-modal="true" role="dialog" aria-label="袋のラベルを読む">
+  <div class="scan-head"><h2>袋のラベルを枠に入れてください</h2><button id="scan-close" type="button">閉じる</button></div>
+  <div id="reader-wrap"><div id="reader"></div></div>
+  <p>明るい場所で、ラベル全体を写してください</p>
+</section>
+<script src="vendor/html5-qrcode_2.3.8.min.js"></script>
+<script>
+'use strict';
+var API='https://pqfsanwopptslgdrdebn.supabase.co/functions/v1/zigzag-shoot';
+var MAX_PHOTOS=8;
+var DB_NAME='zigzag_shoot_v1';
+var DB_STORE='pending';
+var _scan=null;
+var _flushing=false;
+var _candidatesReady=Promise.resolve();
+var state={stage:'label',photos:[],candidates:[],visibleCandidates:[],selected:null,selectedSet:false,condition:'',quantity:1,draft:{name:'',description:'',genre:''},size:'',memo:'',draftBusy:false,draftDone:false,aiUnavailable:false,label:'',error:'',managementNo:'',clientId:''};
+var params=new URLSearchParams(location.search);
+var worker=params.get('w')||'';
+var mock=isMockMode(location.search);
+var workerValid=mock||/^[A-Za-z0-9]{8}$/.test(worker);
+
+function esc(value){return String(value==null?'':value).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function normCode(s){
+  s=String(s).toUpperCase().replace(/\s+/g,'');
+  var m=s.match(/^(BU|PKGI|PKG)-?(\d+)$/);
+  if(!m)return s;
+  var d=m[2];while(d.length<8)d='0'+d;
+  return m[1]+'-'+d;
+}
+function findCode(items,raw){
+  var code=normCode(raw),by=function(col){return items.filter(function(it){return it[col]===code;});};
+  var box=by('箱'),one=box.length?[]:by('PKGI');
+  return {code:code,box:box,one:one,bag:(box.length||one.length)?[]:by('袋')};
+}
+function isMockMode(search){return new URLSearchParams(search).get('mock')==='1';}
+function photoRule(count){return {enough:count>=2,full:count>=8,remaining:Math.max(0,8-count)};}
+function primaryState(value){
+  if(value.stage==='receipt')return {action:'next',label:'次の商品へ',enabled:true};
+  if(value.stage==='label')return {action:'scan',label:'袋のラベルを読む',enabled:value.workerValid!==false};
+  if(value.photos<2)return {action:'photo',label:'写真を撮る（あと'+(2-value.photos)+'枚）',enabled:true};
+  if(!value.ready&&value.waiting)return {action:'save',label:value.waiting,enabled:false};
+  return {action:'save',label:'登録して次へ',enabled:!!value.ready};
+}
+function publicText(value){
+  return String(value||'')
+    .replace(/PKGI[-_ ]?[A-Za-z0-9-]*/gi,'')
+    .replace(/\bIT[-_ ]?[A-Za-z0-9-]*/gi,'')
+    .replace(/(?:価格|仕入値?|販売価格)/g,'')
+    .replace(/[¥￥]\s*[\d,]+|[\d,]+\s*円/g,'')
+    .replace(/\s{2,}/g,' ').trim();
+}
+function candidateViewNames(candidates,max){return candidates.slice(0,max).map(function(item){return publicText(item.name);});}
+function dedupeQueue(items){
+  var seen={},out=[];
+  items.forEach(function(item){if(!item||!item.client_id)return;if(seen[item.client_id]===undefined){seen[item.client_id]=out.length;out.push(item);}else out[seen[item.client_id]]=item;});
+  return out;
+}
+async function flushQueueList(items,send){
+  var queue=dedupeQueue(items),remaining=[];
+  for(var i=0;i<queue.length;i++){
+    try{await send(queue[i]);}catch(error){remaining=remaining.concat(queue.slice(i));break;}
+  }
+  return remaining;
+}
+function makeUuid(){
+  if(crypto.randomUUID)return crypto.randomUUID();
+  var bytes=new Uint8Array(16);crypto.getRandomValues(bytes);bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128;
+  return Array.from(bytes,function(b){return b.toString(16).padStart(2,'0');}).join('').replace(/^(........)(....)(....)(....)/,'$1-$2-$3-$4-');
+}
+function safeStorageGet(key,fallback){try{var value=localStorage.getItem(key);return value===null?fallback:value;}catch(error){return fallback;}}
+function safeStorageSet(key,value){try{localStorage.setItem(key,value);}catch(error){}}
+function todayKey(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function todayCount(){var raw=safeStorageGet('zigzag_shoot_today','');try{var value=JSON.parse(raw);return value&&value.date===todayKey()?Number(value.count)||0:0;}catch(error){return 0;}}
+function addToday(){var next=todayCount()+1;safeStorageSet('zigzag_shoot_today',JSON.stringify({date:todayKey(),count:next}));return next;}
+function showIntro(){if(safeStorageGet('zigzag_shoot_intro','')==='1')return;document.getElementById('intro').hidden=false;safeStorageSet('zigzag_shoot_intro','1');}
+
+function mockCandidates(){return [
+  {candidate_id:'11111111-1111-4111-8111-111111111111',name:'ネイビーのショルダーバッグ',remaining:1},
+  {candidate_id:'22222222-2222-4222-8222-222222222222',name:'キャンバストートバッグ',remaining:2},
+  {candidate_id:'33333333-3333-4333-8333-333333333333',name:'小さなポーチ',remaining:1}
+];}
+async function request(path,options){
+  if(mock){
+    await new Promise(function(resolve){setTimeout(resolve,180);});
+    if(!options)return {candidates:mockCandidates()};
+    var body=JSON.parse(options.body||'{}');
+    if(body.action==='draft'){
+      if(params.get('ai')==='0'){var unavailable=new Error('ai_unavailable');unavailable.status=503;throw unavailable;}
+      return {name:'ネイビーのショルダーバッグ',description:'落ち着いた色のバッグです。写真の状態をご確認ください。',genre:'バッグ',candidate_id:mockCandidates()[0].candidate_id,confidence:.94};
+    }
+    if(body.action==='save')return {ok:true,management_no:'Z00123',photo_urls:[]};
+  }
+  var response=await fetch(API+path,options);
+  var value={};try{value=await response.json();}catch(error){}
+  if(!response.ok){var requestError=new Error(value.error||'request_failed');requestError.status=response.status;throw requestError;}
+  return value;
+}
+function openQueue(){
+  return new Promise(function(resolve,reject){
+    var call=indexedDB.open(DB_NAME,1);
+    call.onupgradeneeded=function(){var db=call.result;if(!db.objectStoreNames.contains(DB_STORE))db.createObjectStore(DB_STORE,{keyPath:'client_id'});};
+    call.onsuccess=function(){resolve(call.result);};call.onerror=function(){reject(call.error);};
+  });
+}
+async function queuePut(body){var db=await openQueue();await new Promise(function(resolve,reject){var tx=db.transaction(DB_STORE,'readwrite');tx.objectStore(DB_STORE).put(body);tx.oncomplete=resolve;tx.onerror=function(){reject(tx.error);};});db.close();}
+async function queueAll(){var db=await openQueue();var rows=await new Promise(function(resolve,reject){var call=db.transaction(DB_STORE).objectStore(DB_STORE).getAll();call.onsuccess=function(){resolve(call.result||[]);};call.onerror=function(){reject(call.error);};});db.close();return dedupeQueue(rows);}
+async function queueDelete(id){var db=await openQueue();await new Promise(function(resolve,reject){var tx=db.transaction(DB_STORE,'readwrite');tx.objectStore(DB_STORE).delete(id);tx.oncomplete=resolve;tx.onerror=function(){reject(tx.error);};});db.close();}
+async function queueCount(){try{return (await queueAll()).length;}catch(error){return 0;}}
+async function flushQueue(){
+  if(_flushing||navigator.onLine===false||!workerValid)return;
+  _flushing=true;
+  try{
+    var rows=await queueAll();
+    await flushQueueList(rows,async function(body){var result=await request('',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});await queueDelete(body.client_id);if(state.stage==='receipt'&&state.clientId===body.client_id){state.managementNo=result.management_no||'';render();}});
+  }catch(error){}finally{_flushing=false;await updateStatus();}
+}
+async function updateStatus(){
+  var status=document.getElementById('status');
+  if(!workerValid){status.className='status bad';status.textContent='この URL は使えません。担当者に連絡してください';return;}
+  var pending=await queueCount();
+  if(pending){status.className='status warn';status.textContent='未送信 '+pending+'件 ・ つながったら自動で送ります';return;}
+  status.className='status';status.textContent='今日 '+todayCount()+'件登録 ・ 保存済み ✓';
+}
+function resetItem(){state={stage:'label',photos:[],candidates:[],visibleCandidates:[],selected:null,selectedSet:false,condition:'',quantity:1,draft:{name:'',description:'',genre:''},size:'',memo:'',draftBusy:false,draftDone:false,aiUnavailable:false,label:'',error:'',managementNo:'',clientId:''};render();}
+function readyToSave(){return state.photos.length>=2&&state.draftDone&&state.selectedSet&&!!state.condition;}
+function waitingText(){if(state.draftBusy||!state.draftDone)return '商品名を確認しています';if(!state.selectedSet)return '商品を選んでください';if(!state.condition)return '商品の状態を選んでください';return '';}
+function primaryInfo(){return primaryState({stage:state.stage,photos:state.photos.length,ready:readyToSave(),waiting:waitingText(),workerValid:workerValid});}
+function candidateHtml(){
+  if(!state.draftDone)return '';
+  var title=state.aiUnavailable?'商品を選んでください':'写真に合う商品を選んでください';
+  var rows=state.visibleCandidates.map(function(item){var name=publicText(item.name)||'商品名を確認できません';return '<button class="choice'+(state.selectedSet&&state.selected===item.candidate_id?' on':'')+'" type="button" data-candidate="'+esc(item.candidate_id)+'">'+esc(name)+'</button>';}).join('');
+  rows+='<button class="choice'+(state.selectedSet&&state.selected===null?' on':'')+'" type="button" data-candidate="none">どれでもない</button>';
+  var note=state.autoPicked?'<p class="hint">写真から自動で選びました。違うときは正しい商品を押してください。</p>':'';
+  return '<section class="card"><div class="step"><span>3</span>'+esc(title)+'</div>'+note+'<div class="choices">'+rows+'</div></section>';
+}
+function render(){
+  var app=document.getElementById('app'),html='';
+  if(state.stage==='receipt'){
+    var no=state.managementNo||'未送信';
+    html='<section class="card receipt"><h1>登録を受け付けました</h1><div class="management">'+esc(no)+'</div><p>'+(state.managementNo?'袋に油性ペンで書いてください':'つながると管理番号が決まります')+'</p></section>';
+  }else{
+    html+='<section class="card"><div class="step"><span>1</span>袋のラベル</div>';
+    if(state.stage==='label')html+='<p class="hint">袋に付いたバーコードかQRコードを読みます。</p><button class="text-link" type="button" data-action="no-label">ラベルが無い</button>';
+    else html+='<h2>'+(state.label?'ラベルを読み取りました':'ラベルなしで進めます')+'</h2>';
+    html+='</section>';
+    if(state.stage!=='label'){
+      html+='<section class="card"><div class="step"><span>2</span>商品の写真</div>';
+      html+='<h1>'+esc(state.draft.name||'正面と、裏かタグを撮ってください')+'</h1><p class="hint">'+(state.photos.length<2?'あと'+(2-state.photos.length)+'枚撮ってください。':'撮れました。8枚まで足せます。')+'</p><div class="photo-row">';
+      state.photos.forEach(function(photo,index){html+='<div class="thumb"><img src="'+photo.url+'" alt="写真 '+(index+1)+'"><button type="button" data-remove="'+index+'" aria-label="写真 '+(index+1)+' を削除">×</button></div>';});
+      html+='</div>';
+      if(state.photos.length>=2&&state.photos.length<MAX_PHOTOS)html+='<button class="text-link" type="button" data-action="add-photo">写真を追加</button>';
+      if(state.draftBusy)html+='<p class="loading">商品名を確認しています。状態は先に選べます。</p>';
+      if(state.error)html+='<p class="error">'+esc(state.error)+'</p>';
+      var cands=candidateHtml();html+='</section>'+cands;
+      if(state.photos.length>=2){
+      html+='<section class="card"><div class="step"><span>'+(cands?4:3)+'</span>商品の状態</div><div class="condition">';
+      [['new','新品・未使用'],['good','目立った傷なし'],['damaged','傷や汚れあり']].forEach(function(item){html+='<button type="button" class="'+(state.condition===item[0]?'on':'')+'" data-condition="'+item[0]+'">'+item[1]+'</button>';});
+      html+='</div><div class="quantity"><strong>数量</strong><div class="counter"><button type="button" data-quantity="-1" aria-label="数量を減らす">−</button><output>'+state.quantity+'</output><button type="button" data-quantity="1" aria-label="数量を増やす">＋</button></div></div>';
+      html+='<details><summary>⋯ 詳しく</summary><label for="edit-name">商品名</label><input id="edit-name" type="text" maxlength="500" value="'+esc(state.draft.name)+'"><label for="edit-description">説明</label><textarea id="edit-description" maxlength="1000">'+esc(state.draft.description)+'</textarea><label for="edit-size">サイズ</label><input id="edit-size" type="text" maxlength="100" value="'+esc(state.size)+'"><label for="edit-memo">メモ</label><textarea id="edit-memo" maxlength="500">'+esc(state.memo)+'</textarea><div id="memo-count" class="count">'+state.memo.length+' / 500</div></details></section>';
+      }
+    }
+  }
+  app.innerHTML=html;
+  var info=primaryInfo(),primary=document.getElementById('primary');primary.textContent=info.label;primary.disabled=!info.enabled;primary.dataset.action=info.action;
+}
+function stopScan(){if(!_scan)return;var scanner=_scan;_scan=null;scanner.stop().catch(function(){}).then(function(){try{scanner.clear();}catch(error){}});}
+function closeScan(){stopScan();document.getElementById('scan-layer').hidden=true;}
+function openScan(){
+  if(!window.Html5Qrcode){state.error='カメラを起動できません。ラベルが無い場合は文字リンクから進んでください。';render();return;}
+  document.getElementById('scan-layer').hidden=false;
+  var formats=window.Html5QrcodeSupportedFormats;
+  _scan=formats?new Html5Qrcode('reader',{formatsToSupport:[formats.CODE_128,formats.CODE_39,formats.CODE_93,formats.CODABAR,formats.ITF,formats.QR_CODE],verbose:false}):new Html5Qrcode('reader');
+  _scan.start({facingMode:'environment'},{fps:10,disableFlip:true,qrbox:{width:280,height:150},videoConstraints:{facingMode:'environment',width:{ideal:3840},height:{ideal:2160}}},function(text){var hit=findCode([],text);closeScan();loadLabel(hit.code);},function(){}).catch(function(){closeScan();state.error='カメラを起動できません。ラベルが無い場合は文字リンクから進んでください。';render();});
+}
+async function loadLabel(label){
+  state.stage='photos';state.label=label;state.error='';render();
+  _candidatesReady=request('?w='+encodeURIComponent(worker)+'&label='+encodeURIComponent(label));
+  try{var value=await _candidatesReady;state.candidates=Array.isArray(value.candidates)?value.candidates:[];}
+  catch(error){state.candidates=[];state.error=error.status===403?'この URL は使えません。担当者に連絡してください':'候補を読み込めませんでした。写真から登録を続けられます。';if(error.status===403)workerValid=false;}
+  render();updateStatus();
+}
+function loadImageFile(file){return new Promise(function(resolve,reject){var url=URL.createObjectURL(file),image=new Image();image.onload=function(){URL.revokeObjectURL(url);resolve(image);};image.onerror=function(error){URL.revokeObjectURL(url);reject(error);};image.src=url;});}
+function toJpeg(image,max,quality){var scale=Math.min(1,max/Math.max(image.width,image.height)),width=Math.max(1,Math.round(image.width*scale)),height=Math.max(1,Math.round(image.height*scale)),canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;canvas.getContext('2d').drawImage(image,0,0,width,height);return canvas.toDataURL('image/jpeg',quality);}
+async function addPhoto(file){
+  if(!file||state.photos.length>=MAX_PHOTOS)return;
+  try{var image=await loadImageFile(file),data=toJpeg(image,1600,.8);state.photos.push({url:data,base64:data.split(',')[1],media_type:'image/jpeg'});state.error='';render();if(state.photos.length===2&&!state.draftDone&&!state.draftBusy)createDraft();}
+  catch(error){state.error='写真を読み込めませんでした。もう一度撮ってください。';render();}
+}
+async function createDraft(){
+  state.draftBusy=true;state.error='';render();
+  try{
+    try{await _candidatesReady;}catch(candidateError){}
+    var value=await request('',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'draft',w:worker,photos:state.photos.slice(0,3).map(function(photo){return {media_type:'image/jpeg',base64:photo.base64};}),candidates:state.candidates})});
+    state.draft={name:publicText(value.name),description:publicText(value.description),genre:publicText(value.genre)};
+    var chosen=state.candidates.find(function(item){return item.candidate_id===value.candidate_id;});
+    state.visibleCandidates=state.candidates.slice(0,3);
+    if(chosen&&!state.visibleCandidates.some(function(item){return item.candidate_id===chosen.candidate_id;}))state.visibleCandidates[2]=chosen;
+    if(chosen&&Number(value.confidence)>=.8){state.selected=chosen.candidate_id;state.selectedSet=true;state.autoPicked=true;}
+  }catch(error){
+    state.draft={name:'',description:'',genre:''};state.aiUnavailable=error.status===503;state.visibleCandidates=state.aiUnavailable?state.candidates.slice():state.candidates.slice(0,3);
+    state.error=state.aiUnavailable?'商品名の自動作成を使えません。商品を選んで登録を続けてください。':'商品名を作れませんでした。商品を選んで登録を続けてください。';
+  }
+  state.draftBusy=false;state.draftDone=true;if(!state.candidates.length){state.selected=null;state.selectedSet=true;}render();
+}
+function currentDetails(){return {name:(document.getElementById('edit-name')||{}).value||state.draft.name,description:(document.getElementById('edit-description')||{}).value||state.draft.description,size:(document.getElementById('edit-size')||{}).value||state.size,memo:(document.getElementById('edit-memo')||{}).value||state.memo};}
+function saveBody(){
+  var details=currentDetails(),description=details.description;if(details.size)description+=(description?'\n':'')+'サイズ: '+details.size;
+  state.draft={name:details.name,description:details.description,genre:state.draft.genre};state.size=details.size;state.memo=details.memo;state.clientId=state.clientId||makeUuid();
+  return {action:'save',w:worker,client_id:state.clientId,candidate_id:state.selected,condition:state.condition,quantity:state.quantity,photos:state.photos.map(function(photo){return {media_type:'image/jpeg',base64:photo.base64};}),draft:{name:details.name,description:description,genre:state.draft.genre},memo:details.memo.slice(0,500)};
+}
+async function saveItem(){
+  if(!readyToSave())return;
+  var primary=document.getElementById('primary');primary.disabled=true;primary.textContent='登録しています';state.error='';
+  var body=saveBody();
+  try{
+    if(navigator.onLine===false)throw new Error('offline');
+    var result=await request('',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});state.managementNo=result.management_no||'';
+  }catch(error){
+    if(error.status&&error.status<500){state.error=error.status===403?'この URL は使えません。担当者に連絡してください':'登録内容を確認できませんでした。もう一度お試しください。';if(error.status===403)workerValid=false;render();updateStatus();return;}
+    try{await queuePut(body);state.managementNo='';}catch(queueError){state.error='端末に保存できませんでした。空き容量を確認して、もう一度押してください。';render();return;}
+  }
+  addToday();state.stage='receipt';render();updateStatus();
+}
+document.getElementById('primary').addEventListener('click',function(){var action=this.dataset.action;if(action==='scan')openScan();else if(action==='photo')document.getElementById('photo-input').click();else if(action==='save')saveItem();else if(action==='next')resetItem();});
+document.getElementById('photo-input').addEventListener('change',function(){var file=this.files&&this.files[0];this.value='';addPhoto(file);});
+document.getElementById('scan-close').addEventListener('click',closeScan);
+document.getElementById('app').addEventListener('click',function(event){
+  var target=event.target.closest('button');if(!target)return;
+  if(target.dataset.action==='no-label'){state.stage='photos';state.label='';state.selected=null;state.selectedSet=true;render();return;}
+  if(target.dataset.action==='add-photo'){document.getElementById('photo-input').click();return;}
+  if(target.dataset.remove!==undefined){var index=Number(target.dataset.remove);state.photos.splice(index,1);if(state.photos.length<2){state.draftBusy=false;state.draftDone=false;state.visibleCandidates=[];state.selected=null;state.selectedSet=!state.label;}render();return;}
+  if(target.dataset.candidate!==undefined){state.autoPicked=false;state.selected=target.dataset.candidate==='none'?null:target.dataset.candidate;state.selectedSet=true;render();return;}
+  if(target.dataset.condition){state.condition=target.dataset.condition;render();return;}
+  if(target.dataset.quantity){state.quantity=Math.max(1,Math.min(999,state.quantity+Number(target.dataset.quantity)));render();}
+});
+document.getElementById('app').addEventListener('input',function(event){
+  if(event.target.id==='edit-name')state.draft.name=event.target.value;
+  else if(event.target.id==='edit-description')state.draft.description=event.target.value;
+  else if(event.target.id==='edit-size')state.size=event.target.value;
+  else if(event.target.id==='edit-memo'){state.memo=event.target.value;var count=document.getElementById('memo-count');if(count)count.textContent=event.target.value.length+' / 500';}
+});
+window.addEventListener('online',flushQueue);
+showIntro();render();updateStatus().then(flushQueue);
+</script>
+</body>
+</html>
