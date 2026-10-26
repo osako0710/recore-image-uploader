@@ -262,7 +262,7 @@ async function createDraft(){
     state.draft={name:publicText(value.name),description:publicText(value.description),genre:publicText(value.genre)};
     var chosen=state.candidates.find(function(item){return item.candidate_id===value.candidate_id;});
     state.visibleCandidates=orderedCandidates(state.candidates,value.top_ids,3);
-    if(chosen&&!state.visibleCandidates.some(function(item){return item.candidate_id===chosen.candidate_id;}))state.visibleCandidates[2]=chosen;
+    if(chosen&&!state.visibleCandidates.some(function(item){return item.candidate_id===chosen.candidate_id;}))state.visibleCandidates[Math.min(state.visibleCandidates.length,2)]=chosen;
     if(chosen&&Number(value.confidence)>=.8){state.selected=chosen.candidate_id;state.selectedSet=true;state.autoPicked=true;}
   }catch(error){
     state.draft={name:'',description:'',genre:''};state.aiUnavailable=error.status===503;state.visibleCandidates=state.aiUnavailable?state.candidates.slice():state.candidates.slice(0,3);
