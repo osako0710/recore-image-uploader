@@ -27,6 +27,7 @@ main{width:100%;max-width:560px;margin:0 auto;padding:12px}
 .thumb{position:relative;flex:0 0 92px;height:92px;border-radius:12px;overflow:hidden;background:#ece9e2}
 .thumb img{width:100%;height:100%;object-fit:cover}
 .thumb button{position:absolute;top:4px;right:4px;width:32px;height:32px;border:0;border-radius:50%;background:rgba(0,0,0,.72);color:#fff;font-size:20px;line-height:1}
+.name-label{display:block;font-size:13px;color:var(--sub);margin-top:4px}.name-edit{width:100%;box-sizing:border-box;font-size:19px;font-weight:700;line-height:1.4;padding:8px;border:1px solid var(--line);border-radius:8px;resize:vertical;background:var(--card);color:var(--text)}
 .text-link{display:inline-flex;min-height:44px;align-items:center;border:0;background:none;padding:4px 0;color:var(--main);text-decoration:underline;font-size:14px}
 .loading{margin:10px 0;color:var(--sub);font-size:14px}
 .choices{display:grid;gap:8px;margin-top:12px}
@@ -80,7 +81,7 @@ var DB_STORE='pending';
 var _scan=null;
 var _flushing=false;
 var _candidatesReady=Promise.resolve();
-var state={stage:'label',photos:[],candidates:[],visibleCandidates:[],selected:null,selectedSet:false,condition:'',quantity:1,draft:{name:'',description:'',genre:''},size:'',memo:'',draftBusy:false,draftDone:false,aiUnavailable:false,label:'',error:'',managementNo:'',clientId:''};
+var state={stage:'label',photos:[],candidates:[],visibleCandidates:[],selected:null,selectedSet:false,condition:'',quantity:1,draft:{name:'',description:'',genre:''},size:'',memo:'',draftBusy:false,draftDone:false,draftCandidate:null,nameEdited:false,aiUnavailable:false,label:'',error:'',managementNo:'',clientId:''};
 var params=new URLSearchParams(location.search);
 var worker=params.get('w')||'';
 var mock=isMockMode(location.search);
@@ -154,6 +155,7 @@ async function request(path,options){
     var body=JSON.parse(options.body||'{}');
     if(body.action==='draft'){
       if(params.get('ai')==='0'){var unavailable=new Error('ai_unavailable');unavailable.status=503;throw unavailable;}
+      if(body.candidate_id||body.prev_name){var picked=mockCandidates().find(function(item){return item.candidate_id===body.candidate_id;});return {name:(picked?picked.name:'ネイビー ショルダーバッグ')+' 作り直し',description:'作り直した説明です。',genre:'バッグ',candidate_id:body.candidate_id||null,confidence:body.candidate_id?1:.5,top_ids:[]};}
       return {name:'ネイビーのショルダーバッグ',description:'落ち着いた色のバッグです。写真の状態をご確認ください。',genre:'バッグ',candidate_id:mockCandidates()[0].candidate_id,confidence:.94};
     }
     if(body.action==='save')return {ok:true,management_no:'Z00123',photo_urls:[]};
@@ -189,7 +191,7 @@ async function updateStatus(){
   if(pending){status.className='status warn';status.textContent='未送信 '+pending+'件 ・ つながったら自動で送ります';return;}
   status.className='status';status.textContent='今日 '+todayCount()+'件登録 ・ 保存済み ✓';
 }
-function resetItem(){state={stage:'label',photos:[],candidates:[],visibleCandidates:[],selected:null,selectedSet:false,condition:'',quantity:1,draft:{name:'',description:'',genre:''},size:'',memo:'',draftBusy:false,draftDone:false,aiUnavailable:false,label:'',error:'',managementNo:'',clientId:''};render();}
+function resetItem(){state={stage:'label',photos:[],candidates:[],visibleCandidates:[],selected:null,selectedSet:false,condition:'',quantity:1,draft:{name:'',description:'',genre:''},size:'',memo:'',draftBusy:false,draftDone:false,draftCandidate:null,nameEdited:false,aiUnavailable:false,label:'',error:'',managementNo:'',clientId:''};render();}
 function readyToSave(){return state.photos.length>=2&&state.draftDone&&state.selectedSet&&!!state.condition;}
 function waitingText(){if(state.draftBusy||!state.draftDone)return '商品名を確認しています';if(!state.selectedSet)return '商品を選んでください';if(!state.condition)return '商品の状態を選んでください';return '';}
 function primaryInfo(){return primaryState({stage:state.stage,photos:state.photos.length,ready:readyToSave(),waiting:waitingText(),workerValid:workerValid});}
@@ -213,18 +215,20 @@ function render(){
     html+='</section>';
     if(state.stage!=='label'){
       html+='<section class="card"><div class="step"><span>2</span>商品の写真</div>';
-      html+='<h1>'+esc(state.draft.name||'正面と、裏かタグを撮ってください')+'</h1><p class="hint">'+(state.photos.length<2?'あと'+(2-state.photos.length)+'枚撮ってください。':'撮れました。8枚まで足せます。')+'</p><div class="photo-row">';
+      if(state.draftDone&&state.photos.length>=2&&!state.aiUnavailable)html+='<label class="name-label" for="edit-name">商品名</label><textarea id="edit-name" class="name-edit" rows="2" maxlength="500"'+(state.draftBusy?' disabled':'')+'>'+esc(state.draft.name)+'</textarea><button class="text-link" type="button" data-action="regen-name"'+(state.draftBusy?' disabled':'')+'>商品名を作り直す</button>';
+      else html+='<h1>'+esc(state.draft.name||'正面と、裏かタグを撮ってください')+'</h1>';
+      html+='<p class="hint">'+(state.photos.length<2?'あと'+(2-state.photos.length)+'枚撮ってください。':'撮れました。8枚まで足せます。')+'</p><div class="photo-row">';
       state.photos.forEach(function(photo,index){html+='<div class="thumb"><img src="'+photo.url+'" alt="写真 '+(index+1)+'"><button type="button" data-remove="'+index+'" aria-label="写真 '+(index+1)+' を削除">×</button></div>';});
       html+='</div>';
       if(state.photos.length>=2&&state.photos.length<MAX_PHOTOS)html+='<button class="text-link" type="button" data-action="add-photo">写真を追加</button>';
-      if(state.draftBusy)html+='<p class="loading">商品名を確認しています。状態は先に選べます。</p>';
+      if(state.draftBusy)html+='<p class="loading">'+(state.draftDone?'商品名を作り直しています。':'商品名を確認しています。状態は先に選べます。')+'</p>';
       if(state.error)html+='<p class="error">'+esc(state.error)+'</p>';
       var cands=candidateHtml();html+='</section>'+cands;
       if(state.photos.length>=2){
       html+='<section class="card"><div class="step"><span>'+(cands?4:3)+'</span>商品の状態</div><div class="condition">';
       [['new','新品・未使用'],['good','目立った傷なし'],['damaged','傷や汚れあり']].forEach(function(item){html+='<button type="button" class="'+(state.condition===item[0]?'on':'')+'" data-condition="'+item[0]+'">'+item[1]+'</button>';});
       html+='</div><div class="quantity"><strong>数量</strong><div class="counter"><button type="button" data-quantity="-1" aria-label="数量を減らす">−</button><output>'+state.quantity+'</output><button type="button" data-quantity="1" aria-label="数量を増やす">＋</button></div></div>';
-      html+='<details><summary>⋯ 詳しく</summary><label for="edit-name">商品名</label><input id="edit-name" type="text" maxlength="500" value="'+esc(state.draft.name)+'"><label for="edit-description">説明</label><textarea id="edit-description" maxlength="1000">'+esc(state.draft.description)+'</textarea><label for="edit-size">サイズ</label><input id="edit-size" type="text" maxlength="100" value="'+esc(state.size)+'"><label for="edit-memo">メモ</label><textarea id="edit-memo" maxlength="500">'+esc(state.memo)+'</textarea><div id="memo-count" class="count">'+state.memo.length+' / 500</div></details></section>';
+      html+='<details><summary>⋯ 詳しく</summary><label for="edit-description">説明</label><textarea id="edit-description" maxlength="1000">'+esc(state.draft.description)+'</textarea><label for="edit-size">サイズ</label><input id="edit-size" type="text" maxlength="100" value="'+esc(state.size)+'"><label for="edit-memo">メモ</label><textarea id="edit-memo" maxlength="500">'+esc(state.memo)+'</textarea><div id="memo-count" class="count">'+state.memo.length+' / 500</div></details></section>';
       }
     }
   }
@@ -254,22 +258,31 @@ async function addPhoto(file){
   try{var image=await loadImageFile(file),data=toJpeg(image,1600,.8);state.photos.push({url:data,base64:data.split(',')[1],media_type:'image/jpeg'});state.error='';render();if(state.photos.length===2&&!state.draftDone&&!state.draftBusy)createDraft();}
   catch(error){state.error='写真を読み込めませんでした。もう一度撮ってください。';render();}
 }
-async function createDraft(){
+async function createDraft(opts){
+  opts=opts||{};var redo=!!opts.redo;
   state.draftBusy=true;state.error='';render();
   try{
     try{await _candidatesReady;}catch(candidateError){}
-    var value=await request('',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'draft',w:worker,label:state.label,photos:state.photos.slice(0,3).map(function(photo){return {media_type:'image/jpeg',base64:photo.base64};})})});
-    state.draft={name:publicText(value.name),description:publicText(value.description),genre:publicText(value.genre)};
+    var value=await request('',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(draftRequestBody(opts))});
+    state.draft={name:publicText(value.name),description:publicText(value.description),genre:publicText(value.genre)};state.nameEdited=false;state.draftCandidate=value.candidate_id||null;
+    if(redo){state.draftBusy=false;render();return;}
     var chosen=state.candidates.find(function(item){return item.candidate_id===value.candidate_id;});
     state.visibleCandidates=orderedCandidates(state.candidates,value.top_ids,3);
     if(chosen&&!state.visibleCandidates.some(function(item){return item.candidate_id===chosen.candidate_id;}))state.visibleCandidates[Math.min(state.visibleCandidates.length,2)]=chosen;
     if(chosen&&Number(value.confidence)>=.8){state.selected=chosen.candidate_id;state.selectedSet=true;state.autoPicked=true;}
   }catch(error){
+    if(redo){state.draftBusy=false;state.error='商品名を作り直せませんでした。商品名の欄で直してください。';render();return;}
     state.draft={name:'',description:'',genre:''};state.aiUnavailable=error.status===503;state.visibleCandidates=state.aiUnavailable?state.candidates.slice():state.candidates.slice(0,3);
     state.error=state.aiUnavailable?'商品名の自動作成を使えません。商品を選んで登録を続けてください。':'商品名を作れませんでした。商品を選んで登録を続けてください。';
   }
   state.draftBusy=false;state.draftDone=true;if(!state.candidates.length){state.selected=null;state.selectedSet=true;}render();
 }
+function draftRequestBody(opts){
+  var body={action:'draft',w:worker,label:state.label,photos:state.photos.slice(0,3).map(function(photo){return {media_type:'image/jpeg',base64:photo.base64};})};
+  if(opts&&opts.redo){if(state.selectedSet&&state.selected)body.candidate_id=state.selected;if(opts.prevName)body.prev_name=String(opts.prevName).slice(0,500);}
+  return body;
+}
+function shouldRedoForPick(id){return !!id&&state.draftDone&&!state.draftBusy&&!state.aiUnavailable&&!state.nameEdited&&state.photos.length>=2&&id!==state.draftCandidate;}
 function currentDetails(){return {name:(document.getElementById('edit-name')||{}).value||state.draft.name,description:(document.getElementById('edit-description')||{}).value||state.draft.description,size:(document.getElementById('edit-size')||{}).value||state.size,memo:(document.getElementById('edit-memo')||{}).value||state.memo};}
 function saveBody(){
   var details=currentDetails(),description=details.description;if(details.size)description+=(description?'\n':'')+'サイズ: '+details.size;
@@ -297,12 +310,13 @@ document.getElementById('app').addEventListener('click',function(event){
   if(target.dataset.action==='no-label'){state.stage='photos';state.label='';state.selected=null;state.selectedSet=true;render();return;}
   if(target.dataset.action==='add-photo'){document.getElementById('photo-input').click();return;}
   if(target.dataset.remove!==undefined){var index=Number(target.dataset.remove);state.photos.splice(index,1);if(state.photos.length<2){state.draftBusy=false;state.draftDone=false;state.visibleCandidates=[];state.selected=null;state.selectedSet=!state.label;}render();return;}
-  if(target.dataset.candidate!==undefined){state.autoPicked=false;state.selected=target.dataset.candidate==='none'?null:target.dataset.candidate;state.selectedSet=true;render();return;}
+  if(target.dataset.action==='regen-name'){if(!state.draftBusy)createDraft({redo:true,prevName:state.draft.name});return;}
+  if(target.dataset.candidate!==undefined){state.autoPicked=false;state.selected=target.dataset.candidate==='none'?null:target.dataset.candidate;state.selectedSet=true;if(shouldRedoForPick(state.selected))createDraft({redo:true});else render();return;}
   if(target.dataset.condition){state.condition=target.dataset.condition;render();return;}
   if(target.dataset.quantity){state.quantity=Math.max(1,Math.min(999,state.quantity+Number(target.dataset.quantity)));render();}
 });
 document.getElementById('app').addEventListener('input',function(event){
-  if(event.target.id==='edit-name')state.draft.name=event.target.value;
+  if(event.target.id==='edit-name'){state.draft.name=event.target.value;state.nameEdited=true;}
   else if(event.target.id==='edit-description')state.draft.description=event.target.value;
   else if(event.target.id==='edit-size')state.size=event.target.value;
   else if(event.target.id==='edit-memo'){state.memo=event.target.value;var count=document.getElementById('memo-count');if(count)count.textContent=event.target.value.length+' / 500';}
