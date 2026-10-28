@@ -192,7 +192,7 @@ async function updateStatus(){
   status.className='status';status.textContent='今日 '+todayCount()+'件登録 ・ 保存済み ✓';
 }
 function resetItem(){state={stage:'label',photos:[],candidates:[],visibleCandidates:[],selected:null,selectedSet:false,condition:'',quantity:1,draft:{name:'',description:'',genre:''},size:'',memo:'',draftBusy:false,draftDone:false,draftCandidate:null,nameEdited:false,aiUnavailable:false,label:'',error:'',managementNo:'',clientId:''};render();}
-function readyToSave(){return state.photos.length>=2&&state.draftDone&&state.selectedSet&&!!state.condition;}
+function readyToSave(){return state.photos.length>=2&&state.draftDone&&!state.draftBusy&&state.selectedSet&&!!state.condition;}
 function waitingText(){if(state.draftBusy||!state.draftDone)return '商品名を確認しています';if(!state.selectedSet)return '商品を選んでください';if(!state.condition)return '商品の状態を選んでください';return '';}
 function primaryInfo(){return primaryState({stage:state.stage,photos:state.photos.length,ready:readyToSave(),waiting:waitingText(),workerValid:workerValid});}
 function candidateHtml(){
@@ -215,7 +215,7 @@ function render(){
     html+='</section>';
     if(state.stage!=='label'){
       html+='<section class="card"><div class="step"><span>2</span>商品の写真</div>';
-      if(state.draftDone&&state.photos.length>=2&&!state.aiUnavailable)html+='<label class="name-label" for="edit-name">商品名</label><textarea id="edit-name" class="name-edit" rows="2" maxlength="500"'+(state.draftBusy?' disabled':'')+'>'+esc(state.draft.name)+'</textarea><button class="text-link" type="button" data-action="regen-name"'+(state.draftBusy?' disabled':'')+'>商品名を作り直す</button>';
+      if(state.draftDone&&state.photos.length>=2)html+='<label class="name-label" for="edit-name">商品名</label><textarea id="edit-name" class="name-edit" rows="2" maxlength="500"'+(state.draftBusy?' disabled':'')+'>'+esc(state.draft.name)+'</textarea>'+(state.aiUnavailable?'':'<button class="text-link" type="button" data-action="regen-name"'+(state.draftBusy?' disabled':'')+'>商品名を作り直す</button>');
       else html+='<h1>'+esc(state.draft.name||'正面と、裏かタグを撮ってください')+'</h1>';
       html+='<p class="hint">'+(state.photos.length<2?'あと'+(2-state.photos.length)+'枚撮ってください。':'撮れました。8枚まで足せます。')+'</p><div class="photo-row">';
       state.photos.forEach(function(photo,index){html+='<div class="thumb"><img src="'+photo.url+'" alt="写真 '+(index+1)+'"><button type="button" data-remove="'+index+'" aria-label="写真 '+(index+1)+' を削除">×</button></div>';});
@@ -265,7 +265,7 @@ async function createDraft(opts){
     try{await _candidatesReady;}catch(candidateError){}
     var value=await request('',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(draftRequestBody(opts))});
     state.draft={name:publicText(value.name),description:publicText(value.description),genre:publicText(value.genre)};state.nameEdited=false;state.draftCandidate=value.candidate_id||null;
-    if(redo){state.draftBusy=false;render();return;}
+    if(redo){state.draftBusy=false;if(shouldRedoForPick(state.selected)){createDraft({redo:true});return;}render();return;}
     var chosen=state.candidates.find(function(item){return item.candidate_id===value.candidate_id;});
     state.visibleCandidates=orderedCandidates(state.candidates,value.top_ids,3);
     if(chosen&&!state.visibleCandidates.some(function(item){return item.candidate_id===chosen.candidate_id;}))state.visibleCandidates[Math.min(state.visibleCandidates.length,2)]=chosen;
