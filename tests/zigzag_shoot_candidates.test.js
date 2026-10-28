@@ -9,3 +9,5 @@ test('候補にない ID と重複は捨て、最大3件にする',function(){as
 test('top_ids が空なら先頭3件を出す',function(){assert.deepStrictEqual(orderedCandidates(list,[],3).map(function(x){return x.candidate_id;}),['a','b','c']);assert.deepStrictEqual(orderedCandidates(list,undefined,3).length,3);});
 test('draft はラベルを送り、候補一覧は送らない',function(){var line=html.split('\n').find(function(l){return l.indexOf("action:'draft'")>=0;});assert.ok(line.indexOf('label:state.label')>=0);assert.ok(line.indexOf('candidates:')<0);});
 test('確定候補が上位にないときも候補表示に空きを作らない',function(){var line=html.split('\n').find(function(l){return l.indexOf('state.visibleCandidates[')>=0;});assert.ok(line.indexOf('Math.min(state.visibleCandidates.length,2)')>=0);});
+var doneText=new Function(pick('doneText')+'\nreturn doneText;')();
+test('登録済みの数を候補に出し、残数に達したら残数ぶん登録済みと出す',function(){assert.strictEqual(doneText({done:0,remaining:2}),'');assert.strictEqual(doneText({remaining:2}),'');assert.strictEqual(doneText({done:1,remaining:2}),'登録済み 1点');assert.strictEqual(doneText({done:3,remaining:2}),'残数ぶん登録済み');});
