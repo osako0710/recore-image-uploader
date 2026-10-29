@@ -90,7 +90,7 @@ var DB_STORE='pending';
 var _cam=null;
 var _decoder=null;
 var _manualPrefix='PKGI';
-var _labelSeq=0;
+var _labelSeq=0; var _draftSeq=0;
 var _flushing=false;
 var _candidatesReady=Promise.resolve();
 var state={stage:'label',photos:[],candidates:[],visibleCandidates:[],selected:null,selectedSet:false,condition:'',quantity:1,draft:{name:'',description:'',genre:''},size:'',memo:'',draftBusy:false,draftDone:false,draftCandidate:null,nameEdited:false,aiUnavailable:false,label:'',error:'',managementNo:'',clientId:''};
@@ -204,7 +204,7 @@ async function updateStatus(){
   if(pending){status.className='status warn';status.textContent='未送信 '+pending+'件 ・ つながったら自動で送ります';return;}
   status.className='status';status.textContent='今日 '+todayCount()+'件登録 ・ 保存済み ✓';
 }
-function resetItem(){state={stage:'label',photos:[],candidates:[],visibleCandidates:[],selected:null,selectedSet:false,condition:'',quantity:1,draft:{name:'',description:'',genre:''},size:'',memo:'',draftBusy:false,draftDone:false,draftCandidate:null,nameEdited:false,aiUnavailable:false,label:'',error:'',managementNo:'',clientId:''};render();}
+function resetItem(){_draftSeq++;_labelSeq++;state={stage:'label',photos:[],candidates:[],visibleCandidates:[],selected:null,selectedSet:false,condition:'',quantity:1,draft:{name:'',description:'',genre:''},size:'',memo:'',draftBusy:false,draftDone:false,draftCandidate:null,nameEdited:false,aiUnavailable:false,label:'',error:'',managementNo:'',clientId:''};render();}
 function readyToSave(){return state.photos.length>=2&&state.draftDone&&!state.draftBusy&&state.selectedSet&&!!state.condition;}
 function waitingText(){if(state.draftBusy||!state.draftDone)return '商品名を確認しています';if(!state.selectedSet)return '商品を選んでください';if(!state.condition)return '商品の状態を選んでください';return '';}
 function primaryInfo(){return primaryState({stage:state.stage,photos:state.photos.length,ready:readyToSave(),waiting:waitingText(),workerValid:workerValid});}
@@ -275,6 +275,7 @@ function stopScan(){
 }
 function closeScan(){stopScan();document.getElementById('scan-layer').hidden=true;}
 function showManual(message){
+  stopScan();document.getElementById('reader-wrap').hidden=true;document.getElementById('scan-tip').hidden=true;document.querySelector('#scan-layer h2').textContent='ラベルの番号を入力';
   document.getElementById('manual-form').hidden=false;document.getElementById('manual-open').hidden=true;
   document.getElementById('manual-error').textContent=message||'';
   setPrefix(_manualPrefix);
@@ -316,11 +317,11 @@ async function openScan(){
     try{await video.play();}catch(error){}
     if(_cam===cam)scanFrame();
   }catch(error){
-    if(_cam!==cam)return;stopScan();document.getElementById('reader-wrap').hidden=true;document.getElementById('scan-tip').hidden=true;document.querySelector('#scan-layer h2').textContent='ラベルの番号を入力';
+    if(_cam!==cam)return;
     showManual('カメラを起動できません。ラベルの番号を入力してください。');
   }
 }
-function clearDraft(){state.draftBusy=false;state.draftDone=false;state.draftCandidate=null;state.visibleCandidates=[];state.selected=null;state.selectedSet=false;state.autoPicked=false;state.aiUnavailable=false;state.nameEdited=false;state.draft={name:'',description:'',genre:''};}
+function clearDraft(){_draftSeq++;state.draftBusy=false;state.draftDone=false;state.draftCandidate=null;state.visibleCandidates=[];state.selected=null;state.selectedSet=false;state.autoPicked=false;state.aiUnavailable=false;state.nameEdited=false;state.draft={name:'',description:'',genre:''};}
 function relabel(){if(state.draftBusy)return;_labelSeq++;clearDraft();state.stage='label';state.label='';state.candidates=[];state.error='';_candidatesReady=Promise.resolve();render();}
 function startWithoutLabel(){_labelSeq++;state.stage='photos';state.label='';state.candidates=[];state.selected=null;state.selectedSet=true;state.error='';_candidatesReady=Promise.resolve();render();if(state.photos.length>=2&&!state.draftBusy&&!state.draftDone)createDraft();}
 async function loadLabel(label){
@@ -340,11 +341,13 @@ async function addPhoto(file){
   catch(error){state.error='写真を読み込めませんでした。もう一度撮ってください。';render();}
 }
 async function createDraft(opts){
-  opts=opts||{};var redo=!!opts.redo;
+  opts=opts||{};var redo=!!opts.redo;var seq=++_draftSeq;
   state.draftBusy=true;state.error='';render();
   try{
     try{await _candidatesReady;}catch(candidateError){}
+    if(seq!==_draftSeq)return;
     var value=await request('',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(draftRequestBody(opts))});
+    if(seq!==_draftSeq)return;
     state.draft={name:publicText(value.name),description:publicText(value.description),genre:publicText(value.genre)};state.nameEdited=false;state.draftCandidate=value.candidate_id||null;
     if(redo){state.draftBusy=false;if(shouldRedoForPick(state.selected)){createDraft({redo:true});return;}render();return;}
     var chosen=state.candidates.find(function(item){return item.candidate_id===value.candidate_id;});
@@ -352,6 +355,7 @@ async function createDraft(opts){
     if(chosen&&!state.visibleCandidates.some(function(item){return item.candidate_id===chosen.candidate_id;}))state.visibleCandidates[Math.min(state.visibleCandidates.length,2)]=chosen;
     if(chosen&&Number(value.confidence)>=.8){state.selected=chosen.candidate_id;state.selectedSet=true;state.autoPicked=true;}
   }catch(error){
+    if(seq!==_draftSeq)return;
     if(redo){state.draftBusy=false;state.error='商品名を作り直せませんでした。商品名の欄で直してください。';render();return;}
     state.draft={name:'',description:'',genre:''};state.aiUnavailable=error.status===503;state.visibleCandidates=state.aiUnavailable?state.candidates.slice():state.candidates.slice(0,3);
     state.error=state.aiUnavailable?'商品名の自動作成を使えません。商品を選んで登録を続けてください。':'商品名を作れませんでした。商品を選んで登録を続けてください。';
@@ -398,7 +402,7 @@ document.getElementById('app').addEventListener('click',function(event){
   if(target.dataset.action==='no-label'){startWithoutLabel();return;}
   if(target.dataset.action==='relabel'){relabel();return;}
   if(target.dataset.action==='add-photo'){document.getElementById('photo-input').click();return;}
-  if(target.dataset.remove!==undefined){var index=Number(target.dataset.remove);state.photos.splice(index,1);if(state.photos.length<2){state.draftBusy=false;state.draftDone=false;state.visibleCandidates=[];state.selected=null;state.selectedSet=!state.label;}render();return;}
+  if(target.dataset.remove!==undefined){var index=Number(target.dataset.remove);state.photos.splice(index,1);if(state.photos.length<2){_draftSeq++;state.draftBusy=false;state.draftDone=false;state.visibleCandidates=[];state.selected=null;state.selectedSet=!state.label;}render();return;}
   if(target.dataset.action==='regen-name'){if(!state.draftBusy)createDraft({redo:true,prevName:state.draft.name});return;}
   if(target.dataset.candidate!==undefined){state.autoPicked=false;state.selected=target.dataset.candidate==='none'?null:target.dataset.candidate;state.selectedSet=true;if(shouldRedoForPick(state.selected))createDraft({redo:true});else render();return;}
   if(target.dataset.condition){state.condition=target.dataset.condition;render();return;}
