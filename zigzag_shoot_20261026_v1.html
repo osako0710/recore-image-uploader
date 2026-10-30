@@ -104,6 +104,7 @@ var DB_STORE='pending';
 var _cam=null;
 var _detectorP=null;
 var _readCode='';
+var _scanSession=0;
 // 読み取りはマクサスのダッシュボード (app/_components/BarcodeScanner.js) と同じ方式にそろえる
 var SCAN_FORMATS=['code_128','code_39','code_93','ean_13','ean_8','itf','codabar','qr_code'];
 var _manualPrefix='PKGI';
@@ -285,9 +286,9 @@ function stopScan(){
   if(cam.stream)cam.stream.getTracks().forEach(function(track){try{track.stop();}catch(error){}});
   cam.video.srcObject=null;document.getElementById('scan-tools').hidden=true;
 }
-function closeScan(){stopScan();document.getElementById('scan-layer').hidden=true;}
+function closeScan(){_scanSession++;stopScan();document.getElementById('scan-layer').hidden=true;}
 function showManual(message){
-  stopScan();document.getElementById('reader-wrap').hidden=true;document.getElementById('scan-tip').hidden=true;document.getElementById('scan-shot').hidden=true;document.getElementById('scan-result').hidden=true;document.querySelector('#scan-layer h2').textContent='ラベルの番号を入力';
+  _scanSession++;stopScan();document.getElementById('reader-wrap').hidden=true;document.getElementById('scan-tip').hidden=true;document.getElementById('scan-shot').hidden=true;document.getElementById('scan-result').hidden=true;document.querySelector('#scan-layer h2').textContent='ラベルの番号を入力';
   document.getElementById('manual-form').hidden=false;document.getElementById('manual-open').hidden=true;
   document.getElementById('manual-error').textContent=message||'';
   setPrefix(_manualPrefix);
@@ -338,12 +339,25 @@ async function decodeStill(file){
   }
   return '';
 }
+// 画面の枠（少し広め）が、カメラの元の映像のどこに当たるか。映像は object-fit:cover で画面に出している
+function guideBox(vw,vh,cw,ch){
+  var scale=Math.max(cw/vw,ch/vh),ox=(vw*scale-cw)/2,oy=(vh*scale-ch)/2;
+  var gx=cw*0.02,gy=ch*0.27,gw=cw*0.96,gh=ch*0.46;
+  return {x:(gx+ox)/scale,y:(gy+oy)/scale,w:gw/scale,h:gh/scale};
+}
+// 読めたバーコードのうち、中心が枠の中にあるものだけを採る（隣のラベルを拾わない）
+function inGuide(hit,box){
+  var b=hit&&hit.boundingBox;if(!b||!box)return true;
+  var cx=b.x+b.width/2,cy=b.y+b.height/2;
+  return cx>=box.x&&cx<=box.x+box.w&&cy>=box.y&&cy<=box.y+box.h;
+}
 function scanTick(){
   var cam=_cam;if(!cam)return;var video=cam.video;
   if(video.readyState<2){cam.timer=setTimeout(scanTick,200);return;}
   cam.detector.detect(video).then(function(found){
     if(_cam!==cam)return;
-    var hit=(found||[]).find(function(c){return typeof c.rawValue==='string'&&c.rawValue.trim();});
+    var box=video.videoWidth&&video.clientWidth?guideBox(video.videoWidth,video.videoHeight,video.clientWidth,video.clientHeight):null;
+    var hit=(found||[]).find(function(c){return typeof c.rawValue==='string'&&c.rawValue.trim()&&inGuide(c,box);});
     if(hit){var next=confirmRead(cam.last,hit.rawValue);cam.last=next.last;if(next.text){showRead(next.text);return;}}
     cam.timer=setTimeout(scanTick,200);
   },function(){if(_cam===cam)cam.timer=setTimeout(scanTick,200);});
@@ -371,7 +385,7 @@ async function openScan(){
   document.getElementById('scan-tip').textContent='明るい場所で、ラベル全体を枠に入れてください';
   document.getElementById('manual-form').hidden=true;document.getElementById('manual-open').hidden=false;document.getElementById('manual-no').value='';document.getElementById('manual-error').textContent='';
   var video=document.getElementById('scan-video'),cam={video:video,stream:null,timer:0,detector:null,track:null,last:{text:'',count:0}};
-  stopScan();_cam=cam;_readCode='';
+  stopScan();_cam=cam;_readCode='';_scanSession++;
   try{
     if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error('no camera');
     var detectorP=getDetector();detectorP.catch(function(){});
@@ -486,9 +500,15 @@ document.getElementById('read-again').addEventListener('click',function(){openSc
 document.getElementById('scan-shot').addEventListener('click',function(){document.getElementById('scan-shot-input').click();});
 document.getElementById('scan-shot-input').addEventListener('change',async function(){
   var file=this.files&&this.files[0];this.value='';if(!file)return;
-  var tip=document.getElementById('scan-tip'),button=document.getElementById('scan-shot');button.disabled=true;tip.textContent='写真から番号を読んでいます';
-  try{var text=await decodeStill(file);if(text){showRead(text);return;}tip.textContent='読み取れませんでした。ラベルを画面いっぱいに写して撮り直すか、番号を入力してください';}
-  catch(error){tip.textContent='読み取れませんでした。番号を入力してください';}
+  var tip=document.getElementById('scan-tip'),button=document.getElementById('scan-shot'),session=_scanSession;button.disabled=true;tip.textContent='写真から番号を読んでいます';
+  try{
+    var text=await decodeStill(file);
+    // 読んでいる間に閉じたり開き直したりしたら、古い写真の結果は捨てる
+    if(session!==_scanSession)return;
+    if(text){showRead(text);return;}
+    tip.textContent='読み取れませんでした。ラベルを画面いっぱいに写して撮り直すか、番号を入力してください';
+  }
+  catch(error){if(session===_scanSession)tip.textContent='読み取れませんでした。番号を入力してください';}
   finally{button.disabled=false;}
 });
 document.getElementById('scan-torch').addEventListener('click',async function(){var cam=_cam;if(!cam||!cam.track)return;try{await cam.track.applyConstraints({advanced:[{torch:!cam.torch}]});cam.torch=!cam.torch;this.classList.toggle('on',cam.torch);}catch(error){}});

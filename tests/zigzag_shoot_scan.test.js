@@ -45,3 +45,17 @@ test('古い窓口に送るときは番号と白抜きの項目を外す',functi
   var f=new Function(pick('withoutNewFields')+'\nreturn withoutNewFields;')();
   assert.deepStrictEqual(f({action:'save',client_id:'x',label:'BU-1',whiteout:true,memo:''}),{action:'save',client_id:'x',memo:''});
 });
+test('枠の外にあるバーコードは採らない',function(){
+  var f=new Function(pick('guideBox')+'\n'+pick('inGuide')+'\nreturn {guideBox:guideBox,inGuide:inGuide};')();
+  // 縦持ち 1080x1920 の映像を 390x600 の画面に cover で出す
+  var box=f.guideBox(1080,1920,390,600);
+  var at=function(cx,cy){return {boundingBox:{x:cx-50,y:cy-20,width:100,height:40}};};
+  assert.ok(f.inGuide(at(540,960),box),'画面の真ん中は枠の中');
+  assert.ok(!f.inGuide(at(540,200),box),'上の方のラベルは枠の外');
+  assert.ok(!f.inGuide(at(540,1800),box),'下の方のラベルは枠の外');
+  assert.ok(f.inGuide({rawValue:'x'},box),'位置が分からない読み取りは採る');
+});
+test('撮った写真の読み取りは、開き直した読み取り画面に古い結果を出さない',function(){
+  assert.ok(/session!==_scanSession\)return;/.test(html));
+  assert.ok(/function closeScan\(\)\{_scanSession\+\+;/.test(html));
+});
