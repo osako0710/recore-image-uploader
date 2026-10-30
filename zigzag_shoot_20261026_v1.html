@@ -364,7 +364,8 @@ function scanTick(){
 }
 // 読んだ番号を大きく出し、袋のラベルと見比べてから進める
 function showRead(text){
-  stopScan();_readCode=findCode([],text).code;
+  // 番号を出したら、読み途中の写真の結果で入れ替わらないようにする
+  _scanSession++;stopScan();_readCode=findCode([],text).code;
   document.getElementById('read-no').textContent=_readCode;
   document.getElementById('reader-wrap').hidden=true;document.getElementById('scan-tip').hidden=true;document.getElementById('scan-shot').hidden=true;document.getElementById('manual-open').hidden=true;
   document.getElementById('scan-result').hidden=false;document.querySelector('#scan-layer h2').textContent='番号を確かめてください';

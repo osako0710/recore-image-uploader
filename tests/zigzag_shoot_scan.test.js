@@ -59,3 +59,6 @@ test('撮った写真の読み取りは、開き直した読み取り画面に�
   assert.ok(/session!==_scanSession\)return;/.test(html));
   assert.ok(/function closeScan\(\)\{_scanSession\+\+;/.test(html));
 });
+test('番号を出したら、読み途中の写真の結果で入れ替えない',function(){
+  assert.ok(/function showRead\(text\)\{\s*\/\/[^\n]*\n\s*_scanSession\+\+;/.test(html));
+});
