@@ -18,7 +18,7 @@
 
 | 種類 | 場所 |
 |---|---|
-| 画面 | fromjapan_shoot_20261029_v1.html（入口 fromjapan.html） |
+| 画面 | fromjapan_shoot_20261030_v2.html（入口 fromjapan.html） |
 | API | Supabase Edge Function fromjapan-shoot（配備済み、verify_jwt=false、zigzag-shoot と同じ環境変数） |
 | API の元コード | supabase/functions/fromjapan-shoot/{index.ts,handler.ts} |
 | テーブル | fj_candidates / fj_shots（migration fromjapan_shoot_tables で作成済み、RLS 有効・匿名は不可） |

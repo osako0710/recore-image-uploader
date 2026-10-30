@@ -1,6 +1,6 @@
 // Fromjapan 撮影画面の8桁番号の扱いと、主ボタンの状態を公開する画面の関数で確かめる
 var test=require('node:test'),assert=require('node:assert'),fs=require('fs'),path=require('path');
-var html=fs.readFileSync(path.join(__dirname,'..','fromjapan_shoot_20261029_v1.html'),'utf8');
+var html=fs.readFileSync(path.join(__dirname,'..','fromjapan_shoot_20261030_v2.html'),'utf8');
 function pick(name){var start=html.indexOf('\nfunction '+name+'(');if(start<0)throw new Error('関数が見つかりません: '+name);var i=html.indexOf('{',start),depth=0,quote='',escape=false;for(;i<html.length;i++){var c=html[i];if(quote){if(escape)escape=false;else if(c==='\\')escape=true;else if(c===quote)quote='';continue;}if(c==='"'||c==="'"){quote=c;continue;}if(c==='{')depth++;else if(c==='}'){depth--;if(!depth)return html.slice(start,i+1);}}throw new Error('関数の終わりが見つかりません: '+name);}
 var app=new Function(pick('normCode')+'\n'+pick('codeDigits')+'\n'+pick('formatCode')+'\n'+pick('primaryState')+'\nreturn {normCode:normCode,codeDigits:codeDigits,formatCode:formatCode,primaryState:primaryState};')();
 test('8桁の数字だけを番号として受け付ける',function(){

@@ -512,8 +512,19 @@ async function findShot(clientId: string, supabase: SupabaseRequest): Promise<Sh
 }
 
 // 写真の保存が終わらないまま残った同じ番号の予約は、やり直しとして消して新しい予約に置き換える。
-async function dropStaleReservation(code: string, supabase: SupabaseRequest): Promise<void> {
-  const query = `fj_shots?management_no=eq.${encodeURIComponent(code)}&completed_at=is.null`;
+// 3分以内の予約は別の端末が保存している途中とみなし、503 で後から送り直させる。
+export const STALE_RESERVATION_MS = 3 * 60 * 1000;
+async function dropStaleReservation(code: string, supabase: SupabaseRequest, now: Date): Promise<void> {
+  const select = `fj_shots?select=shot_id,created_at&management_no=eq.${encodeURIComponent(code)}&completed_at=is.null&limit=1`;
+  const rows = await jsonOrError(await supabase(select), 'database_failed');
+  if (!Array.isArray(rows)) throw new HttpError(502, 'database_failed');
+  if (!rows.length) return;
+  const row = rows[0] as { shot_id: string; created_at?: string };
+  const createdAt = Date.parse(String(row.created_at ?? ''));
+  if (!Number.isFinite(createdAt) || now.getTime() - createdAt < STALE_RESERVATION_MS) {
+    throw new HttpError(503, 'number_in_progress');
+  }
+  const query = `fj_shots?shot_id=eq.${encodeURIComponent(row.shot_id)}&completed_at=is.null`;
   const response = await supabase(query, { method: 'DELETE' });
   if (!response.ok) {
     await response.body?.cancel();
@@ -522,7 +533,7 @@ async function dropStaleReservation(code: string, supabase: SupabaseRequest): Pr
   await response.body?.cancel();
 }
 
-async function reserveShot(body: Record<string, unknown>, workerId: string, code: string, supabase: SupabaseRequest): Promise<ShotRow> {
+async function reserveShot(body: Record<string, unknown>, workerId: string, code: string, supabase: SupabaseRequest, now: Date): Promise<ShotRow> {
   const clientId = body.client_id;
   if (typeof clientId !== 'string' || !UUID_RE.test(clientId)) throw new HttpError(400, 'bad_client_id');
   const existing = await findShot(clientId, supabase);
@@ -543,7 +554,7 @@ async function reserveShot(body: Record<string, unknown>, workerId: string, code
   const memo = body.memo ?? '';
   if (typeof memo !== 'string' || memo.length > 500) throw new HttpError(400, 'bad_memo');
   if (await findRegistered(code, supabase)) throw new HttpError(409, 'number_registered');
-  await dropStaleReservation(code, supabase);
+  await dropStaleReservation(code, supabase, now);
   const response = await supabase('fj_shots?select=shot_id,management_no,photo_urls,completed_at', {
     method: 'POST',
     headers: { Prefer: 'return=representation' },
@@ -591,6 +602,8 @@ async function savePhoto(photo: Photo, managementNo: string, index: number, deps
   } catch {
     throw new HttpError(502, 'photo_store_failed');
   }
+  // 同じ名前の古い写真は、保存が途中で止まった前回の試みの残り。予約はこの登録だけが持つので上書きする。
+  let oldSha: string | null = null;
   if (current.ok) {
     let metadata: unknown;
     try {
@@ -598,15 +611,16 @@ async function savePhoto(photo: Photo, managementNo: string, index: number, deps
     } catch {
       throw new HttpError(502, 'photo_store_failed');
     }
-    if (!isObject(metadata) || metadata.sha !== expectedSha) throw new HttpError(409, 'photo_conflict');
-    return `${GH_RAW}/${relative}`;
-  }
-  if (current.status !== 404) {
+    if (!isObject(metadata) || typeof metadata.sha !== 'string') throw new HttpError(502, 'photo_store_failed');
+    if (metadata.sha === expectedSha) return `${GH_RAW}/${relative}`;
+    oldSha = metadata.sha;
+  } else if (current.status !== 404) {
     await current.body?.cancel();
     console.error('fromjapan-shoot photo read status', current.status);
     throw new HttpError(502, 'photo_store_failed');
+  } else {
+    await current.body?.cancel();
   }
-  await current.body?.cancel();
   let saved: Response;
   try {
     saved = await fetcher(apiUrl, {
@@ -616,6 +630,7 @@ async function savePhoto(photo: Photo, managementNo: string, index: number, deps
         message: `fromjapan photo ${managementNo}_${index}`,
         content: photo.base64,
         branch: 'main',
+        ...(oldSha ? { sha: oldSha } : {}),
       }),
     });
   } catch {
@@ -661,7 +676,7 @@ async function saveShot(body: Record<string, unknown>, workerId: string, deps: D
   const clientId = String(body.client_id ?? '');
   const before = UUID_RE.test(clientId) ? await findShot(clientId, supabase) : null;
   if (!before) await enforceRateLimit(workerId, supabase, (deps.now ?? (() => new Date()))());
-  const shot = await reserveShot(body, workerId, code, supabase);
+  const shot = await reserveShot(body, workerId, code, supabase, (deps.now ?? (() => new Date()))());
   if (shot.completed_at && Array.isArray(shot.photo_urls) && shot.photo_urls.length >= 2) {
     return { ok: true, management_no: shot.management_no, photo_urls: shot.photo_urls };
   }
