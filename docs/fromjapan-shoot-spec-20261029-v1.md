@@ -12,7 +12,7 @@
 - 番号を入れた時点で登録済みかを調べ、登録済みなら主ボタンを押せなくする
 - 作業者 URL（?w=）はジグザグと同じ zz_workers を使う。既存の作業者リンクのまま使える
 - 候補リスト（先方の商品リスト）は任意。fj_candidates にその番号の行が無ければ、写真だけから商品名を作る
-- 写真は mercari-images リポジトリの recoreimages/fromjapan/<8桁>_<n>.jpg に置く
+- 写真は mercari-images リポジトリの recoreimages/fromjapan/<8桁>_<予約ID先頭8桁>_<n>.jpg に置く（消された古い予約の送り直しが、後の登録の写真を上書きしないようにするため）
 
 ## 現在の成果物
 

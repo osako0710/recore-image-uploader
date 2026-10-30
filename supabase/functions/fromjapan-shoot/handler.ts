@@ -1,6 +1,6 @@
 // Fromjapan 撮影アプリの API。zigzag-shoot を元に、袋のラベルの8桁番号を商品の鍵にした。
 // 違い: ラベルのバーコードではなく8桁番号（code）で候補を引き、管理番号はその8桁番号をそのまま使う。
-// 同じ番号は1回しか登録できない（2回目は 409 number_registered）。写真は recoreimages/fromjapan/ に置く。
+// 同じ番号は1回しか登録できない（2回目は 409 number_registered）。写真は recoreimages/fromjapan/<番号>_<予約ID先頭8桁>_<n>.jpg に置く。
 const ORIGIN = 'https://osako0710.github.io';
 const GH_API = 'https://api.github.com/repos/osako0710/mercari-images';
 const GH_RAW = 'https://raw.githubusercontent.com/osako0710/mercari-images/main';
@@ -577,17 +577,26 @@ async function reserveShot(body: Record<string, unknown>, workerId: string, code
     await response.body?.cancel();
     const raced = await findShot(clientId, supabase);
     if (raced) return raced;
-    throw new HttpError(409, 'number_registered');
+    // 同時に送った別の端末の予約が先に入った。写真の保存が終わるまでは登録済みとせず、送り直させる。
+    if (await findRegistered(code, supabase)) throw new HttpError(409, 'number_registered');
+    throw new HttpError(503, 'number_in_progress');
   }
   const value = await jsonOrError(response, 'database_failed');
   if (!Array.isArray(value) || value.length !== 1) throw new HttpError(502, 'database_failed');
   return value[0] as ShotRow;
 }
 
-async function savePhoto(photo: Photo, managementNo: string, index: number, deps: Dependencies): Promise<string> {
+// 写真の名前に予約IDを入れる。消された古い予約の送り直しが、後から登録した予約の写真を上書きしないようにするため。
+export function photoPath(managementNo: string, shotId: string, index: number): string {
+  const tag = shotId.replace(/[^0-9a-f]/gi, '').slice(0, 8).toLowerCase();
+  if (tag.length !== 8) throw new HttpError(502, 'database_failed');
+  return `recoreimages/fromjapan/${managementNo}_${tag}_${index}.jpg`;
+}
+
+async function savePhoto(photo: Photo, managementNo: string, shotId: string, index: number, deps: Dependencies): Promise<string> {
   if (!deps.githubToken) throw new HttpError(503, 'photo_store_unavailable');
   const fetcher = deps.fetcher ?? fetch;
-  const relative = `recoreimages/fromjapan/${managementNo}_${index}.jpg`;
+  const relative = photoPath(managementNo, shotId, index);
   const apiUrl = `${GH_API}/contents/${relative}`;
   const expectedSha = await gitBlobSha(photo.bytes);
   const headers = {
@@ -602,7 +611,7 @@ async function savePhoto(photo: Photo, managementNo: string, index: number, deps
   } catch {
     throw new HttpError(502, 'photo_store_failed');
   }
-  // 同じ名前の古い写真は、保存が途中で止まった前回の試みの残り。予約はこの登録だけが持つので上書きする。
+  // 同じ名前の古い写真は、同じ予約で保存が途中で止まった前回の試みの残りなので上書きする。
   let oldSha: string | null = null;
   if (current.ok) {
     let metadata: unknown;
@@ -681,7 +690,7 @@ async function saveShot(body: Record<string, unknown>, workerId: string, deps: D
     return { ok: true, management_no: shot.management_no, photo_urls: shot.photo_urls };
   }
   const photoUrls: string[] = [];
-  for (let i = 0; i < photos.length; i++) photoUrls.push(await savePhoto(photos[i], shot.management_no, i + 1, deps));
+  for (let i = 0; i < photos.length; i++) photoUrls.push(await savePhoto(photos[i], shot.management_no, shot.shot_id, i + 1, deps));
   const completedAt = (deps.now ?? (() => new Date()))().toISOString();
   const response = await supabase(`fj_shots?shot_id=eq.${encodeURIComponent(shot.shot_id)}&select=management_no,photo_urls`, {
     method: 'PATCH',
