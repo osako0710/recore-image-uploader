@@ -53,3 +53,29 @@ test('入力欄と読み取りボタンが両方ある',function(){
   assert.ok(html.includes('vendor/barcode-detector_3.2.2/ponyfill.js'));
   assert.ok(fs.existsSync(path.join(__dirname,'..','vendor','barcode-detector_3.2.2','ponyfill.js')));
 });
+test('端末が対応しているときだけライトとズームを出し、ズームは初期値のまま始める',function(){
+  var els={};['scan-tools','scan-torch','scan-zoom'].forEach(function(id){els[id]={hidden:true,classList:{remove:function(){}}};});
+  var doc={getElementById:function(id){return els[id];}};
+  var setup=new Function('document',pick('setupCameraTools')+'\nreturn setupCameraTools;')(doc);
+  var cam={};
+  setup({getCapabilities:function(){return {torch:true,zoom:{min:1,max:5,step:0.5}};},getSettings:function(){return {zoom:1.5};}},cam);
+  assert.strictEqual(els['scan-tools'].hidden,false);
+  assert.strictEqual(els['scan-torch'].hidden,false);
+  assert.strictEqual(els['scan-zoom'].hidden,false);
+  assert.strictEqual(els['scan-zoom'].value,1.5);
+  assert.strictEqual(cam.torch,false);
+  setup({getCapabilities:function(){return {};}},{});
+  assert.strictEqual(els['scan-tools'].hidden,true);
+  assert.strictEqual(els['scan-torch'].hidden,true);
+  assert.strictEqual(els['scan-zoom'].hidden,true);
+  setup({},{});
+  assert.strictEqual(els['scan-tools'].hidden,true);
+});
+test('画面が裏に回ったら読み取りを閉じる',function(){
+  assert.match(html,/visibilitychange[^\n]*closeScan/);
+});
+test('撮影して読み取るときは、読めなければ写真を回して読み直す',function(){
+  var body=pick('decodeStill');
+  assert.match(body,/angles=\[-25,25,-45,45\]/);
+  assert.match(body,/cx\.rotate\(rad\)/);
+});

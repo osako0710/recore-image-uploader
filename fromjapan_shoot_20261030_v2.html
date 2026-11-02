@@ -60,6 +60,7 @@ textarea{min-height:90px;resize:vertical}.count{text-align:right;color:var(--sub
 .scan-layer{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;background:#0d1411;color:#fff;padding:calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom))}
 .scan-layer[hidden]{display:none}.scan-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.scan-head h2{margin:0;font-size:18px}.scan-head button{min-width:44px;min-height:44px;border:0;background:none;color:#fff;font-size:16px;text-decoration:underline}
 #reader-wrap{position:relative;flex:1;min-height:160px;overflow:hidden;border-radius:14px;background:#000;margin-top:12px}#scan-video{display:block;width:100%;height:100%;object-fit:cover}.scan-guide{position:absolute;left:5%;right:5%;top:32%;height:36%;border:3px solid #fff;border-radius:10px;box-shadow:0 0 0 9999px rgba(0,0,0,.35)}
+.scan-tools{position:absolute;top:10px;left:10px;right:10px;display:flex;gap:10px;align-items:center}.scan-tools[hidden]{display:none}.scan-tools button{width:48px;height:48px;border:0;border-radius:10px;background:rgba(0,0,0,.5);color:#fff;font-size:15px;font-weight:700}.scan-tools button.on{background:#f5c542;color:#222}.scan-tools input{flex:1;height:40px}
 .scan-layer p{text-align:center;font-size:15px}.scan-shot{min-height:52px;border:1px solid #6d7c76;border-radius:12px;background:transparent;color:#fff;font-size:16px;font-weight:700}
 </style>
 </head>
@@ -77,7 +78,7 @@ textarea{min-height:90px;resize:vertical}.count{text-align:right;color:var(--sub
 <input id="photo-input" class="sr-only" type="file" accept="image/*" capture="environment">
 <section id="scan-layer" class="scan-layer" hidden role="dialog" aria-modal="true" aria-label="ラベルを読み取る">
   <div class="scan-head"><h2>ラベルのコードを枠に入れてください</h2><button id="scan-close" type="button">閉じる</button></div>
-  <div id="reader-wrap"><video id="scan-video" playsinline muted autoplay></video><div class="scan-guide"></div></div>
+  <div id="reader-wrap"><video id="scan-video" playsinline muted autoplay></video><div class="scan-guide"></div><div id="scan-tools" class="scan-tools" hidden><button id="scan-torch" type="button" aria-label="ライト" hidden>ライト</button><input id="scan-zoom" type="range" aria-label="ズーム" hidden></div></div>
   <p id="scan-tip">バーコードか QR コードを枠に入れてください</p>
   <button id="scan-shot" class="scan-shot" type="button">撮影して読み取る</button>
   <input id="scan-shot-input" class="sr-only" type="file" accept="image/*" capture="environment">
@@ -459,6 +460,17 @@ async function decodeStill(file){
     enhanceForScan(cx,cv.width,cv.height);
     var t2=await readCode();if(t2)return t2;
   }
+  // ラベルを斜めに撮った写真は、回して読み直す
+  var angles=[-25,25,-45,45];
+  for(var k=0;k<angles.length;k++){
+    var rad=angles[k]*Math.PI/180,cos=Math.abs(Math.cos(rad)),sin=Math.abs(Math.sin(rad));
+    var bw=image.width*cos+image.height*sin,bh=image.width*sin+image.height*cos,rs=Math.min(2,2200/Math.max(bw,bh));
+    cv.width=Math.max(2,Math.round(bw*rs));cv.height=Math.max(2,Math.round(bh*rs));
+    cx.save();cx.fillStyle='#fff';cx.fillRect(0,0,cv.width,cv.height);cx.translate(cv.width/2,cv.height/2);cx.rotate(rad);cx.scale(rs,rs);cx.drawImage(image,-image.width/2,-image.height/2);cx.restore();
+    var t3=await readCode();if(t3)return t3;
+    enhanceForScan(cx,cv.width,cv.height);
+    var t4=await readCode();if(t4)return t4;
+  }
   return '';
 }
 function guideBox(vw,vh,cw,ch){
@@ -475,7 +487,18 @@ function setScanTip(text){document.getElementById('scan-tip').textContent=text;}
 function stopScan(){
   if(!_cam)return;var cam=_cam;_cam=null;clearTimeout(cam.timer);
   if(cam.stream)cam.stream.getTracks().forEach(function(track){try{track.stop();}catch(error){}});
-  cam.video.srcObject=null;
+  cam.video.srcObject=null;document.getElementById('scan-tools').hidden=true;
+}
+// 暗い棚や小さいラベル向けに、端末が対応していればライトとズームを出す
+function setupCameraTools(track,cam){
+  var tools=document.getElementById('scan-tools'),torch=document.getElementById('scan-torch'),zoom=document.getElementById('scan-zoom');
+  tools.hidden=true;torch.hidden=true;zoom.hidden=true;torch.classList.remove('on');
+  try{
+    var caps=track.getCapabilities?track.getCapabilities():{};
+    if(caps.torch){torch.hidden=false;tools.hidden=false;cam.torch=false;}
+    // ズームは端末の初期値のまま始める（上げるとぼやけて枠からはみ出す）
+    if(caps.zoom){var cur=track.getSettings?track.getSettings().zoom:null;zoom.min=caps.zoom.min;zoom.max=caps.zoom.max;zoom.step=caps.zoom.step||0.1;zoom.value=typeof cur==='number'?cur:caps.zoom.min;zoom.hidden=false;tools.hidden=false;}
+  }catch(error){}
 }
 function closeScan(){_scanSession++;stopScan();document.getElementById('scan-layer').hidden=true;}
 // 読めた番号は入力欄に入れるだけにする。ラベルと見比べてから「この番号で進む」を押す
@@ -508,7 +531,7 @@ async function openScan(){
     var detectorP=getDetector();detectorP.catch(function(){});
     var stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}});
     if(_cam!==cam){stream.getTracks().forEach(function(track){track.stop();});return;}
-    cam.stream=stream;video.srcObject=stream;
+    cam.stream=stream;video.srcObject=stream;cam.track=stream.getVideoTracks()[0];if(cam.track)setupCameraTools(cam.track,cam);
     try{await video.play();}catch(error){}
     try{cam.detector=await detectorP;}catch(error){if(_cam===cam)scanFailed('読み取りの準備ができませんでした。数字を入力してください');return;}
     if(_cam===cam)cam.timer=setTimeout(scanTick,200);
@@ -517,6 +540,10 @@ async function openScan(){
   }
 }
 document.getElementById('scan-close').addEventListener('click',closeScan);
+document.getElementById('scan-torch').addEventListener('click',async function(){var cam=_cam;if(!cam||!cam.track)return;try{await cam.track.applyConstraints({advanced:[{torch:!cam.torch}]});cam.torch=!cam.torch;this.classList.toggle('on',cam.torch);}catch(error){}});
+document.getElementById('scan-zoom').addEventListener('input',async function(){var cam=_cam;if(!cam||!cam.track)return;try{await cam.track.applyConstraints({advanced:[{zoom:parseFloat(this.value)}]});}catch(error){}});
+// 画面が裏に回るとカメラが止まったままになるので、読み取りを閉じる。戻ったらもう一度押してもらう
+document.addEventListener('visibilitychange',function(){if(document.hidden&&_cam)closeScan();});
 document.getElementById('scan-shot').addEventListener('click',function(){document.getElementById('scan-shot-input').click();});
 document.getElementById('scan-shot-input').addEventListener('change',function(){
   var file=this.files&&this.files[0];this.value='';if(!file)return;
