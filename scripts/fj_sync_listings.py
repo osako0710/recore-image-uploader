@@ -132,7 +132,8 @@ def main():
         sys.exit("環境変数がありません: " + ", ".join(missing))
     started = datetime.datetime.now(datetime.timezone.utc).isoformat()
     payload_rows = [{k: v for k, v in r.items() if k != "sku_kind"} for r in rows]
-    for i in range(0, len(payload_rows), BATCH):
+    # FJ 出品が0件でも最後の呼び出しを1回送り、前回までの行を消し込む。
+    for i in range(0, max(len(payload_rows), 1), BATCH):
         last = i + BATCH >= len(payload_rows)
         out = rpc(env, "fj_sync_listings", {"token": env["FJ_SYNC_TOKEN"], "rows": payload_rows[i:i + BATCH],
                                             "finish": last, "started": started})

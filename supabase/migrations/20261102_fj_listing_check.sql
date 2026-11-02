@@ -63,7 +63,7 @@ returns table (product_id text, fj_no text, name text, status text, score real)
 language sql stable security definer set search_path = public, extensions as $$
   select product_id, fj_no, name, status, similarity(name, q) as score
   from fj_listings
-  where management_no is null and status = 'on_sale' and name % q
+  where management_no is null and status in ('on_sale', 'stopped') and name % q
   order by similarity(name, q) desc
   limit least(greatest(n, 1), 5);
 $$;

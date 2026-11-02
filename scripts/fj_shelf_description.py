@@ -34,14 +34,14 @@ def main():
     n = 0
     with open(out, "w", newline="", encoding="utf-8-sig") as fh:
         w = csv.writer(fh, lineterminator="\r\n")
-        w.writerow(["product_id", "management_no", "shelf", "fj_found", "changed"])
+        w.writerow(["product_id", "management_no", "shelf", "fj_found", "changed", "new_description"])
         for line in open(src, encoding="utf-8"):
             p = json.loads(line)
             mark = marks.get(p.get("id"))
             if not mark:
                 continue
             new = with_shelf(p.get("description") or "", mark["shelf"])
-            w.writerow([p["id"], mark["management_no"], mark["shelf"], new is not None, new is not None and new != p.get("description")])
+            w.writerow([p["id"], mark["management_no"], mark["shelf"], new is not None, new is not None and new != p.get("description"), new or ""])
             n += 1
     print(f"{n} 件を {out} に出しました（Shops は更新していません）")
 

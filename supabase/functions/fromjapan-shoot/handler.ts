@@ -354,9 +354,16 @@ async function saveShelf(body: Record<string, unknown>, workerId: string, deps: 
     headers: { Prefer: 'return=minimal' },
     body: JSON.stringify({ management_no: code, shelf: shelf || null, kind, product_id: productId, worker_id: workerId, client_id: clientId }),
   });
-  // 同じ client_id の送り直しは、1回目の登録が残っているので成功として返す。
   if (!response.ok && response.status !== 409) { await response.body?.cancel(); throw new HttpError(502, 'database_failed'); }
   await response.body?.cancel();
+  // 同じ client_id の送り直しは、1回目に登録した棚番を返す。画面の表示と保存した棚番を食い違わせない。
+  if (response.status === 409) {
+    const query = `fj_shelf_marks?select=shelf,kind&client_id=eq.${encodeURIComponent(clientId)}&limit=1`;
+    const rows = await jsonOrError(await supabase(query), 'database_failed');
+    if (!Array.isArray(rows) || rows.length !== 1) throw new HttpError(502, 'database_failed');
+    const saved = rows[0] as { shelf: string | null; kind: string };
+    return { ok: true, kind: saved.kind, shelf: saved.shelf ?? '', fj_no: listing.fj_no };
+  }
   return { ok: true, kind, shelf, fj_no: listing.fj_no };
 }
 

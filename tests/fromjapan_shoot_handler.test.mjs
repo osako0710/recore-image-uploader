@@ -32,7 +32,8 @@ function fakeWorld({ shots = [], files = {}, hooks = {}, failPut = false, listin
     }
     if (table === 'rpc/fj_similar_listings') return json(similar);
     if (table === 'fj_shelf_marks') {
-      if (method === 'GET') return json(marks.filter((m) => !p.worker_id || m.worker_id === p.worker_id.slice(3)));
+      if (method === 'GET') return json(marks.filter((m) => (!p.worker_id || m.worker_id === p.worker_id.slice(3)) &&
+        (!p.client_id || m.client_id === p.client_id.slice(3))));
       const row = JSON.parse(init.body);
       if (marks.some((m) => m.client_id === row.client_id)) return json({}, 409);
       marks.push(row);
@@ -209,6 +210,14 @@ test('出品なしでも8桁の無い出品を選べば listed_by_name、8桁の
   assert.equal((await ok.json()).kind, 'listed_by_name');
   const ng = await shelf(w.deps, { code: '24130244', client_id: UUID2, shelf: 'B-2', product_id: 'p1' });
   assert.equal(ng.status, 409);
+});
+
+test('同じ client_id で棚番を変えて送り直すと、1回目に保存した棚番を返す', async () => {
+  const w = fakeWorld({ listings: [{ product_id: 'p1', management_no: '24130242', fj_no: 'FJ100', name: 'a', status: 'on_sale' }] });
+  await shelf(w.deps, { code: '24130242', client_id: UUID1, shelf: 'A-12' });
+  const res = await shelf(w.deps, { code: '24130242', client_id: UUID1, shelf: 'B-3' });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).shelf, 'A-12');
 });
 
 test('出品中でも棚番が空なら 400 bad_shelf', async () => {
