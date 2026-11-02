@@ -74,6 +74,15 @@ test('端末が対応しているときだけライトとズームを出し、�
 test('画面が裏に回ったら読み取りを閉じる',function(){
   assert.match(html,/visibilitychange[^\n]*closeScan/);
 });
+test('撮影して読み取るで裏に回ったときは、読み取りの画面を残す',function(){
+  assert.match(html,/visibilitychange[^\n]*if\(_stillCapture\)stopScan\(\);else closeScan\(\)/);
+  assert.match(html,/'scan-shot'\)\.addEventListener\('click',function\(\)\{_stillCapture=true;/);
+  assert.match(html,/stopScan\(\);document\.getElementById\('scan-layer'\)\.hidden=false;var session=\+\+_scanSession/);
+});
+test('ライトは切り替え中の再押下を受けず、頼んだ値を状態に入れる',function(){
+  assert.match(html,/cam\.torchBusy\)return;var want=!cam\.torch;cam\.torchBusy=true;/);
+  assert.match(html,/cam\.torch=want;[^\n]*finally\{cam\.torchBusy=false;\}/);
+});
 test('撮影して読み取るときは、読めなければ写真を回して読み直す',function(){
   var s=html.indexOf('async function decodeStill('),body=html.slice(s,html.indexOf('\nfunction guideBox(',s));
   assert.ok(s>=0);
