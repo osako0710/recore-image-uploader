@@ -293,7 +293,7 @@ function render(){
     else html+=(state.label?'<p class="hint">読み取った番号</p><div class="label-no">'+esc(state.label)+'</div>':'<h2>ラベルなしで進めます</h2>')+'<button class="text-link" type="button" data-action="relabel"'+(state.draftBusy?' disabled':'')+'>'+(state.label?'ラベルを読み直す':'ラベルを読む')+'</button>';
     html+='</section>';
     if(state.stage!=='label'){
-      html+='<section class="card"><div class="step"><span>2</span>商品の写真</div><div class="shape" role="group" aria-label="写真の形">'+['4:3','1:1'].map(function(shape){return '<button type="button" data-shape="'+shape+'" class="'+(_shape===shape?'on':'')+'" aria-pressed="'+(_shape===shape)+'">'+shape+'</button>';}).join('')+'</div>';
+      html+='<section class="card"><div class="step"><span>2</span>商品の写真</div><div class="shape" role="group" aria-label="写真の形">'+['4:3','1:1'].map(function(shape){return '<button type="button" data-shape="'+shape+'" class="'+(_shape===shape?'on':'')+'" aria-pressed="'+(_shape===shape)+'">'+shape+'</button>';}).join('')+'</div>'+(_shape==='1:1'?'<p class="hint shape-note">カメラの画面は4:3のままです。撮ったあと、真ん中が正方形で残ります。商品を画面の真ん中に置いてください。</p>':'');
       if(state.draftDone&&state.photos.length>=2)html+='<label class="name-label" for="edit-name">商品名</label><textarea id="edit-name" class="name-edit" rows="2" maxlength="500"'+(state.draftBusy?' disabled':'')+'>'+esc(state.draft.name)+'</textarea>'+(state.aiUnavailable?'':'<button class="text-link" type="button" data-action="regen-name"'+(state.draftBusy?' disabled':'')+'>商品名を作り直す</button>');
       else html+='<h1>'+esc(state.draft.name||'正面と、裏かタグを撮ってください')+'</h1>';
       html+='<p class="hint">'+(state.photos.length<2?'あと'+(2-state.photos.length)+'枚撮ってください。':'撮れました。8枚まで足せます。')+'</p><div class="photo-row">';
