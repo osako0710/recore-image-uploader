@@ -35,6 +35,8 @@ test('8桁を決められない中身は採らない',function(){
   assert.strictEqual(app.codeFromScan('4901234567894'),'');
   assert.strictEqual(app.codeFromScan('1234567'),'');
   assert.strictEqual(app.codeFromScan('11111111 22222222'),'');
+  assert.strictEqual(app.codeFromScan('order=980662&qty=12'),'');
+  assert.strictEqual(app.codeFromScan('A2321-3671'),'');
   assert.strictEqual(app.codeFromScan(null),'');
 });
 test('取り出した番号は手打ちと同じ判定を通る',function(){

@@ -416,7 +416,9 @@ function codeFromScan(raw){
   var runs=s.match(/\d+/g)||[],eights=[];
   runs.forEach(function(r){if(r.length===8&&eights.indexOf(r)<0)eights.push(r);});
   if(eights.length===1)return eights[0];
-  if(!eights.length&&runs.join('').length===8)return runs.join('');
+  // 2321-3671 のように空白とハイフンで区切っただけの番号は、つないで採る
+  var joined=s.trim().replace(/[\s\-\u2010-\u2015\u30fc]/g,'');
+  if(!eights.length&&/^\d{8}$/.test(joined))return joined;
   return '';
 }
 // 同じ値を2回続けて読めたら確定する（誤読を防ぐ）
@@ -489,12 +491,11 @@ function scanTick(){
   cam.detector.detect(video).then(function(found){
     if(_cam!==cam)return;
     var box=video.videoWidth&&video.clientWidth?guideBox(video.videoWidth,video.videoHeight,video.clientWidth,video.clientHeight):null;
-    var hit=(found||[]).find(function(c){return typeof c.rawValue==='string'&&c.rawValue.trim()&&inGuide(c,box);});
-    if(hit){
-      var code=codeFromScan(hit.rawValue);
-      if(!code)setScanTip('8桁の番号が入っていないコードです。別のコードを枠に入れてください');
-      else{var next=confirmRead(cam.last,code);cam.last=next.last;if(next.text){useScanned(next.text);return;}}
-    }
+    var seen=(found||[]).filter(function(c){return typeof c.rawValue==='string'&&c.rawValue.trim()&&inGuide(c,box);});
+    // JAN など8桁にならないコードが先に見つかっても、枠内の別のラベルを読む
+    var code='';seen.some(function(c){code=codeFromScan(c.rawValue);return !!code;});
+    if(code){var next=confirmRead(cam.last,code);cam.last=next.last;if(next.text){useScanned(next.text);return;}}
+    else if(seen.length)setScanTip('8桁の番号が入っていないコードです。別のコードを枠に入れてください');
     cam.timer=setTimeout(scanTick,200);
   },function(){if(_cam===cam)cam.timer=setTimeout(scanTick,200);});
 }
