@@ -544,11 +544,14 @@ document.getElementById('scan-torch').addEventListener('click',async function(){
 document.getElementById('scan-zoom').addEventListener('input',async function(){var cam=_cam;if(!cam||!cam.track)return;try{await cam.track.applyConstraints({advanced:[{zoom:parseFloat(this.value)}]});}catch(error){}});
 // 画面が裏に回るとカメラが止まったままになるので、読み取りを閉じる。戻ったらもう一度押してもらう
 // 「撮影して読み取る」で端末のカメラが開いたときは、読み取りの画面を残してカメラだけ止める
-var _stillCapture=false;
-document.addEventListener('visibilitychange',function(){if(!document.hidden){_stillCapture=false;return;}if(!_cam)return;if(_stillCapture)stopScan();else closeScan();});
-document.getElementById('scan-shot').addEventListener('click',function(){_stillCapture=true;document.getElementById('scan-shot-input').click();});
+// 撮らずに戻ったときは、止めたカメラでの読み取りをやり直す
+var _stillCapture=false,_stillPicked=false;
+function resumeAfterStill(){if(!_stillPicked&&!_cam&&!document.getElementById('scan-layer').hidden)openScan();}
+document.addEventListener('visibilitychange',function(){if(!document.hidden){if(_stillCapture){_stillCapture=false;setTimeout(resumeAfterStill,1000);}return;}if(!_cam)return;if(_stillCapture)stopScan();else closeScan();});
+document.getElementById('scan-shot').addEventListener('click',function(){_stillCapture=true;_stillPicked=false;document.getElementById('scan-shot-input').click();});
+document.getElementById('scan-shot-input').addEventListener('cancel',resumeAfterStill);
 document.getElementById('scan-shot-input').addEventListener('change',function(){
-  var file=this.files&&this.files[0];this.value='';if(!file)return;
+  var file=this.files&&this.files[0];this.value='';if(!file){resumeAfterStill();return;}_stillPicked=true;
   stopScan();document.getElementById('scan-layer').hidden=false;var session=++_scanSession;setScanTip('読み取っています');
   decodeStill(file).then(function(code){if(session!==_scanSession)return;if(code)useScanned(code);else setScanTip('読み取れませんでした。もう一度撮るか、閉じて数字を入力してください');},
     function(){if(session===_scanSession)scanFailed('読み取りの準備ができませんでした。数字を入力してください');});
