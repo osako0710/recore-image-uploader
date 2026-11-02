@@ -1,0 +1,13 @@
+// 写真の形（4:3 / 1:1）と登録の取消を、公開する画面の関数で確かめる
+var test=require('node:test'),assert=require('node:assert'),fs=require('fs'),path=require('path');
+var html=fs.readFileSync(path.join(__dirname,'..','zigzag_shoot_20261026_v1.html'),'utf8');
+function pick(name){var start=html.indexOf('\nfunction '+name+'(');if(start<0)throw new Error('関数が見つかりません: '+name);var i=html.indexOf('{',start),depth=0,quote='',escape=false;for(;i<html.length;i++){var c=html[i];if(quote){if(escape)escape=false;else if(c==='\\')escape=true;else if(c===quote)quote='';continue;}if(c==='"'||c==="'"){quote=c;continue;}if(c==='{')depth++;else if(c==='}'){depth--;if(!depth)return html.slice(start,i+1);}}throw new Error('関数の終わりが見つかりません: '+name);}
+var names=['normalShape','cropRect','cancelErrorText','shotTime','isToday','mineRowState','primaryState'];
+var app=new Function(names.map(pick).join('\n')+'\nreturn {'+names.map(function(n){return n+':'+n;}).join(',')+'};')();
+test('形は 4:3 か 1:1 だけで、知らない値は 4:3 に戻す',function(){assert.strictEqual(app.normalShape('1:1'),'1:1');assert.strictEqual(app.normalShape('4:3'),'4:3');assert.strictEqual(app.normalShape(''),'4:3');assert.strictEqual(app.normalShape('16:9'),'4:3');});
+test('1:1 は横長でも縦長でも中央を正方形に切り抜く',function(){assert.deepStrictEqual(app.cropRect(4032,3024,'1:1'),{x:504,y:0,w:3024,h:3024});assert.deepStrictEqual(app.cropRect(3024,4032,'1:1'),{x:0,y:504,w:3024,h:3024});assert.deepStrictEqual(app.cropRect(1600,1200,'4:3'),{x:0,y:0,w:1600,h:1200});});
+test('取消できない理由を作業者の言葉で返す',function(){assert.match(app.cancelErrorText(409),/出品の準備が始まっている/);assert.match(app.cancelErrorText(404),/見つかりません/);assert.match(app.cancelErrorText(undefined),/電波/);});
+test('一覧の行は、取消済み・出品準備中・取り消せるものを分ける',function(){assert.deepStrictEqual(app.mineRowState({cancelled:true,cancellable:false}),{tag:'取り消し済み',can:false});assert.deepStrictEqual(app.mineRowState({cancellable:true}),{tag:'',can:true});assert.deepStrictEqual(app.mineRowState({pending:true}),{tag:'',can:true});assert.deepStrictEqual(app.mineRowState({cancellable:false}),{tag:'出品準備中',can:false});});
+test('一覧の画面では主ボタンが撮影に戻る',function(){assert.deepStrictEqual(app.primaryState({stage:'mine'}),{action:'back',label:'撮影に戻る',enabled:true});});
+test('登録日時は月/日 時:分で出し、空なら何も出さない',function(){var d=new Date(2026,10,1,9,5);assert.strictEqual(app.shotTime(d.toISOString()),'11/1 09:05');assert.strictEqual(app.shotTime(''),'');assert.strictEqual(app.isToday(new Date().toISOString()),true);assert.strictEqual(app.isToday(''),false);});
+test('画面に取消の入口が2つと形の切り替えがある',function(){assert.ok(html.includes('data-action="cancel-this"'));assert.ok(html.includes('data-action="mine">今日の登録を見る'));assert.ok(html.includes('aria-label="写真の形"'));});
