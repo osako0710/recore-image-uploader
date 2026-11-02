@@ -15,7 +15,7 @@ const NEW_ID = 'bbbbbbbb-0000-4000-8000-000000000000';
 
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
 
-function fakeWorld({ shots = [], files = {}, hooks = {}, failPut = false } = {}) {
+function fakeWorld({ shots = [], files = {}, hooks = {}, failPut = false, listings = null, marks = [], similar = [] } = {}) {
   const calls = [];
   let seq = 0;
   const supabaseRequest = async (path, init = {}) => {
@@ -25,6 +25,19 @@ function fakeWorld({ shots = [], files = {}, hooks = {}, failPut = false } = {})
     const table = url.pathname.slice(1);
     const p = Object.fromEntries(url.searchParams);
     if (table === 'zz_workers') return json([{ worker_id: 'uxZnD8X1' }]);
+    if (table === 'fj_listings') {
+      if (listings === null) return json({ message: 'relation does not exist' }, 404);
+      return json(listings.filter((l) => (!p.product_id || l.product_id === p.product_id.slice(3)) &&
+        (p.management_no === 'is.null' ? l.management_no === null : !p.management_no || l.management_no === p.management_no.slice(3))));
+    }
+    if (table === 'rpc/fj_similar_listings') return json(similar);
+    if (table === 'fj_shelf_marks') {
+      if (method === 'GET') return json(marks.filter((m) => !p.worker_id || m.worker_id === p.worker_id.slice(3)));
+      const row = JSON.parse(init.body);
+      if (marks.some((m) => m.client_id === row.client_id)) return json({}, 409);
+      marks.push(row);
+      return new Response(null, { status: 201 });
+    }
     if (table !== 'fj_shots') return json([]);
     const match = (s) => (!p.management_no || s.management_no === p.management_no.slice(3)) &&
       (!p.client_id || s.client_id === p.client_id.slice(3)) &&
@@ -64,7 +77,7 @@ function fakeWorld({ shots = [], files = {}, hooks = {}, failPut = false } = {})
     files[name] = { sha: createHash('sha1').update(Buffer.concat([head, bytes])).digest('hex') };
     return json({ content: {} }, name in files ? 200 : 201);
   };
-  return { shots, files, calls, hooks, deps: { supabaseUrl: 'http://db', serviceRoleKey: 'k', githubToken: 't', geminiKey: '', supabaseRequest, fetcher, now: () => NOW } };
+  return { shots, files, calls, hooks, marks, deps: { supabaseUrl: 'http://db', serviceRoleKey: 'k', githubToken: 't', geminiKey: '', supabaseRequest, fetcher, now: () => NOW } };
 }
 
 const save = (deps, clientId, photo = JPEG_A, code = '24130242') => handle(new Request('https://api/fn', {
@@ -142,4 +155,77 @@ test('同時に送って先の予約が保存中なら、後の端末には 503 
   const res = await save(w.deps, UUID3, JPEG_B);
   assert.equal(res.status, 503);
   assert.equal((await res.json()).error, 'number_in_progress');
+});
+
+const lookup = (deps, code) => handle(new Request(`https://api/fn?w=uxZnD8X1&code=${code}`, { headers: { origin: ORIGIN } }), deps);
+const shelf = (deps, body) => handle(new Request('https://api/fn', {
+  method: 'POST',
+  headers: { origin: ORIGIN, 'content-type': 'application/json' },
+  body: JSON.stringify({ action: 'shelf', w: 'uxZnD8X1', ...body }),
+}), deps);
+const LISTED = { product_id: 'p1', management_no: '24130242', fj_no: 'FJ1234', name: 'バッグ', status: 'on_sale' };
+const SOLD = { product_id: 'p2', management_no: '24130243', fj_no: 'FJ1235', name: '靴', status: 'sold' };
+const OLD = { product_id: 'p9', management_no: null, fj_no: 'FJ0999', name: '古いバッグ', status: 'on_sale' };
+
+test('番号を引くと出品中・売れた・出品なしを返す', async () => {
+  const w = fakeWorld({ listings: [LISTED, SOLD] });
+  assert.equal((await (await lookup(w.deps, '24130242')).json()).listing.state, 'listed');
+  assert.equal((await (await lookup(w.deps, '24130243')).json()).listing.state, 'sold');
+  assert.equal((await (await lookup(w.deps, '24130244')).json()).listing.state, 'none');
+});
+
+test('fj_listings が無い環境でも番号を引けて listing は null', async () => {
+  const w = fakeWorld();
+  const res = await lookup(w.deps, '24130242');
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).listing, null);
+});
+
+test('出品中の商品に棚番を付けると kind=listed で全角も半角大文字になる', async () => {
+  const w = fakeWorld({ listings: [LISTED] });
+  const res = await shelf(w.deps, { code: '24130242', client_id: UUID1, shelf: 'ａ－１２ ' });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.kind, 'listed');
+  assert.equal(body.shelf, 'A-12');
+  assert.equal(w.marks[0].product_id, 'p1');
+  // 同じ client_id の送り直しは成功扱いで、行は増えない
+  assert.equal((await shelf(w.deps, { code: '24130242', client_id: UUID1, shelf: 'A-12' })).status, 200);
+  assert.equal(w.marks.length, 1);
+});
+
+test('売れた商品は棚番なしで sold_hold、出品なしは 409 not_listed', async () => {
+  const w = fakeWorld({ listings: [SOLD] });
+  const res = await shelf(w.deps, { code: '24130243', client_id: UUID1, shelf: '' });
+  assert.equal((await res.json()).kind, 'sold_hold');
+  const none = await shelf(w.deps, { code: '24130244', client_id: UUID2, shelf: 'A-1' });
+  assert.equal(none.status, 409);
+  assert.equal((await none.json()).error, 'not_listed');
+});
+
+test('出品なしでも8桁の無い出品を選べば listed_by_name、8桁のある出品は選べない', async () => {
+  const w = fakeWorld({ listings: [LISTED, OLD] });
+  const ok = await shelf(w.deps, { code: '24130244', client_id: UUID1, shelf: 'B-2', product_id: 'p9' });
+  assert.equal((await ok.json()).kind, 'listed_by_name');
+  const ng = await shelf(w.deps, { code: '24130244', client_id: UUID2, shelf: 'B-2', product_id: 'p1' });
+  assert.equal(ng.status, 409);
+});
+
+test('出品中でも棚番が空なら 400 bad_shelf', async () => {
+  const w = fakeWorld({ listings: [LISTED] });
+  const res = await shelf(w.deps, { code: '24130242', client_id: UUID1, shelf: '   ' });
+  assert.equal(res.status, 400);
+});
+
+test('撮影の保存で棚番を送ると fj_shots.shelf に正規化して入る', async () => {
+  const w = fakeWorld();
+  const res = await handle(new Request('https://api/fn', {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ action: 'save', w: 'uxZnD8X1', code: '24130242', client_id: UUID1, candidate_id: null, condition: 'good', quantity: 1,
+      photos: [{ media_type: 'image/jpeg', base64: JPEG_A }, { media_type: 'image/jpeg', base64: JPEG_A }],
+      draft: { name: 'バッグ', description: '', genre: 'その他' }, memo: '', shelf: 'c-3' }),
+  }), w.deps);
+  assert.equal(res.status, 200);
+  assert.equal(w.shots[0].shelf, 'C-3');
 });
