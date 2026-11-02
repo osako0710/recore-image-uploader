@@ -154,7 +154,7 @@ function cancelErrorText(status){
 function shotTime(iso){var d=new Date(iso);if(!iso||isNaN(d))return '';return (d.getMonth()+1)+'/'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}
 function isToday(iso){var d=new Date(iso),t=new Date();if(!iso||isNaN(d))return false;return d.getFullYear()===t.getFullYear()&&d.getMonth()===t.getMonth()&&d.getDate()===t.getDate();}
 function mineRowState(item){if(item.cancelled)return {tag:'取り消し済み',can:false};if(item.pending||item.cancellable)return {tag:'',can:true};return {tag:'出品準備中',can:false};}
-// 直せるのは取込前の登録だけ。窓口が状態と数量を返さない古い版のときは「直す」を出さない
+// 直せるのは取込前の登録だけ。窓口が状態と数量を返さない古い版のときは「編集する」を出さない
 function canEdit(item){return !item.cancelled&&(!!item.pending||(item.editable===true&&!!item.condition));}
 function conditionText(value){return {new:'新品・未使用',good:'目立った傷なし',damaged:'傷や汚れあり'}[value]||'';}
 function editErrorText(status){
@@ -291,14 +291,14 @@ function render(){
     if(state.error)html+='<p class="error">'+esc(state.error)+'</p>';
     html+='</section>';
   }else if(state.stage==='mine'){
-    html='<section class="card"><h1>今日と昨日の登録</h1><p class="hint">状態や数量の間違いは「直す」で直せます。管理番号は変わりません。商品や写真の間違いは「取り消す」を押して撮り直してください。</p>';
+    html='<section class="card"><h1>今日と昨日の登録</h1><p class="hint">状態や数量の間違いは「編集する」で直せます。管理番号は変わりません。商品や写真の間違いは「取り消す」を押して撮り直してください。</p>';
     if(_mine.busy)html+='<p class="loading">読み込んでいます</p>';
     else if(!_mine.items.length&&!_mine.error)html+='<p class="hint">まだ登録がありません。</p>';
     _mine.items.forEach(function(item){
       var row=mineRowState(item);
       var detail=[shotTime(item.created_at),conditionText(item.condition),item.quantity?item.quantity+'点':''].filter(Boolean).join(' ・ ');
       var open=_edit&&_edit.client_id===item.client_id;
-      var acts=row.can?'<div class="acts">'+(canEdit(item)&&!open?'<button class="fix" type="button" data-edit="'+esc(item.client_id)+'"'+(item.busy?' disabled':'')+'>直す</button>':'')+'<button class="cancel" type="button" data-cancel="'+esc(item.client_id)+'"'+(item.busy?' disabled':'')+'>'+(item.busy?'取り消し中':'取り消す')+'</button></div>':'<span class="tag">'+esc(row.tag)+'</span>';
+      var acts=row.can?'<div class="acts">'+(canEdit(item)&&!open?'<button class="fix" type="button" data-edit="'+esc(item.client_id)+'"'+(item.busy?' disabled':'')+'>編集する</button>':'')+'<button class="cancel" type="button" data-cancel="'+esc(item.client_id)+'"'+(item.busy?' disabled':'')+'>'+(item.busy?'取り消し中':'取り消す')+'</button></div>':'<span class="tag">'+esc(row.tag)+'</span>';
       html+='<div class="mine-row">'+(item.photo_url?'<img src="'+esc(item.photo_url)+'" alt="">':'<div class="noimg"></div>')+'<div class="body"><div class="no">'+esc(item.management_no||'未送信')+'</div><div class="nm">'+esc(publicText(item.name)||'商品名なし')+'</div><div class="nm wrap">'+esc(detail)+'</div></div>'+acts+'</div>';
       if(open){
         html+='<div class="edit-box"><div class="condition">';
