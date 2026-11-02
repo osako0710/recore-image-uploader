@@ -115,7 +115,13 @@ var _manualPrefix='PKGI';
 var _labelSeq=0; var _draftSeq=0;
 var _flushing=false;
 var _candidatesReady=Promise.resolve();
-var _edit=null,_edited={};
+var _edit=null,_edited=loadEdited(),_editLost=0;
+// 送信中に直した内容は、サーバーに届くまで端末に残す（再読み込みしても消さない）
+function loadEdited(){try{var value=JSON.parse(localStorage.getItem('zz_edited_v1')||'{}');return value&&typeof value==='object'?value:{};}catch(error){return {};}}
+function saveEdited(){try{localStorage.setItem('zz_edited_v1',JSON.stringify(_edited));}catch(error){}}
+async function applyEdit(clientId){var fix=_edited[clientId];if(!fix)return;if(_cancelled[clientId]){delete _edited[clientId];saveEdited();return;}
+  try{await postEdit(clientId,fix.condition,fix.quantity);delete _edited[clientId];saveEdited();}
+  catch(error){if(error.status===404||error.status===409){delete _edited[clientId];saveEdited();_editLost++;}}}
 var state={stage:'label',photos:[],candidates:[],visibleCandidates:[],selected:null,selectedSet:false,condition:'',quantity:1,draft:{name:'',description:'',genre:''},size:'',memo:'',whiteout:false,draftBusy:false,draftDone:false,draftCandidate:null,nameEdited:false,aiUnavailable:false,label:'',error:'',managementNo:'',clientId:''};
 var params=new URLSearchParams(location.search);
 var worker=params.get('w')||'';
@@ -259,7 +265,8 @@ async function flushQueue(){
   _flushing=true;
   try{
     var rows=await queueAll();
-    await flushQueueList(rows,async function(body){var result=await sendSave(body);await queueDelete(body.client_id);if(_edited[body.client_id]&&!_cancelled[body.client_id]){var fix=_edited[body.client_id];try{await postEdit(body.client_id,fix.condition,fix.quantity);delete _edited[body.client_id];}catch(editError){}}if(_cancelled[body.client_id]){try{await postCancel(body.client_id);}catch(cancelError){}return;}if(state.stage==='receipt'&&state.clientId===body.client_id){state.managementNo=result.management_no||'';render();}});
+    await flushQueueList(rows,async function(body){var result=await sendSave(body);await queueDelete(body.client_id);if(_edited[body.client_id]&&!_cancelled[body.client_id]){await applyEdit(body.client_id);}if(_cancelled[body.client_id]){try{await postCancel(body.client_id);}catch(cancelError){}return;}if(state.stage==='receipt'&&state.clientId===body.client_id){state.managementNo=result.management_no||'';render();}});
+    var left=await queueAll();for(var id of Object.keys(_edited)){if(!left.some(function(row){return row.client_id===id;}))await applyEdit(id);}
   }catch(error){}finally{_flushing=false;await updateStatus();}
 }
 async function updateStatus(){
@@ -267,6 +274,8 @@ async function updateStatus(){
   if(!workerValid){status.className='status bad';status.textContent='この URL は使えません。担当者に連絡してください';return;}
   var pending=await queueCount();
   if(pending){status.className='status warn';status.textContent='未送信 '+pending+'件 ・ つながったら自動で送ります';return;}
+  if(_editLost){status.className='status bad';status.textContent='出品の準備が始まっていたため、直した内容 '+_editLost+'件を保存できませんでした。担当者に伝えてください';return;}
+  var unsent=Object.keys(_edited).length;if(unsent){status.className='status warn';status.textContent='直した内容 '+unsent+'件が未送信 ・ つながったら自動で送ります';return;}
   status.className='status';status.textContent='今日 '+todayCount()+'件登録 ・ 保存済み ✓';
 }
 function resetItem(){_draftSeq++;_labelSeq++;state={stage:'label',photos:[],candidates:[],visibleCandidates:[],selected:null,selectedSet:false,condition:'',quantity:1,draft:{name:'',description:'',genre:''},size:'',memo:'',whiteout:false,draftBusy:false,draftDone:false,draftCandidate:null,nameEdited:false,aiUnavailable:false,label:'',error:'',managementNo:'',clientId:''};render();}
@@ -302,8 +311,8 @@ function render(){
       html+='<div class="mine-row">'+(item.photo_url?'<img src="'+esc(item.photo_url)+'" alt="">':'<div class="noimg"></div>')+'<div class="body"><div class="no">'+esc(item.management_no||'未送信')+'</div><div class="nm">'+esc(publicText(item.name)||'商品名なし')+'</div><div class="nm wrap">'+esc(detail)+'</div></div>'+acts+'</div>';
       if(open){
         html+='<div class="edit-box"><div class="condition">';
-        [['new','新品・未使用'],['good','目立った傷なし'],['damaged','傷や汚れあり']].forEach(function(c){html+='<button type="button" class="'+(_edit.condition===c[0]?'on':'')+'" data-edit-condition="'+c[0]+'">'+c[1]+'</button>';});
-        html+='</div><div class="quantity"><strong>数量</strong><div class="counter"><button type="button" data-edit-quantity="-1" aria-label="数量を減らす">−</button><output>'+_edit.quantity+'</output><button type="button" data-edit-quantity="1" aria-label="数量を増やす">＋</button></div></div>';
+        [['new','新品・未使用'],['good','目立った傷なし'],['damaged','傷や汚れあり']].forEach(function(c){html+='<button type="button" class="'+(_edit.condition===c[0]?'on':'')+'" data-edit-condition="'+c[0]+'"'+(_edit.busy?' disabled':'')+'>'+c[1]+'</button>';});
+        html+='</div><div class="quantity"><strong>数量</strong><div class="counter"><button type="button" data-edit-quantity="-1" aria-label="数量を減らす"'+(_edit.busy?' disabled':'')+'>−</button><output>'+_edit.quantity+'</output><button type="button" data-edit-quantity="1" aria-label="数量を増やす"'+(_edit.busy?' disabled':'')+'>＋</button></div></div>';
         html+='<button class="text-link" type="button" data-action="edit-close"'+(_edit.busy?' disabled':'')+'>直さずに閉じる</button></div>';
       }
     });
@@ -559,15 +568,15 @@ function postEdit(clientId,condition,quantity){return request('',{method:'POST',
 async function editRegistration(clientId,condition,quantity){
   var row=null;
   try{row=(await queueAll()).find(function(item){return item.client_id===clientId;})||null;}catch(error){}
-  if(row){row.condition=condition;row.quantity=quantity;await queuePut(row);_edited[clientId]={condition:condition,quantity:quantity};return;}
+  if(row){row.condition=condition;row.quantity=quantity;await queuePut(row);_edited[clientId]={condition:condition,quantity:quantity};saveEdited();return;}
   await postEdit(clientId,condition,quantity);
 }
 function openEdit(clientId){var item=_mine.items.find(function(row){return row.client_id===clientId;});if(!item||!canEdit(item))return;_edit={client_id:clientId,condition:item.condition||'',quantity:Number(item.quantity)||1,busy:false};_mine.error='';render();}
 async function saveEdit(){
-  var edit=_edit;if(!edit||edit.busy||!edit.condition)return;
+  var edit=_edit;if(!edit||edit.busy||!edit.condition)return;var sent={condition:edit.condition,quantity:edit.quantity};
   var item=_mine.items.find(function(row){return row.client_id===edit.client_id;});if(!item)return;
   edit.busy=true;_mine.error='';render();
-  try{await editRegistration(edit.client_id,edit.condition,edit.quantity);item.condition=edit.condition;item.quantity=edit.quantity;_edit=null;}
+  try{await editRegistration(edit.client_id,sent.condition,sent.quantity);item.condition=sent.condition;item.quantity=sent.quantity;if(_edit===edit)_edit=null;}
   catch(error){edit.busy=false;_mine.error=editErrorText(error.status);if(error.status===403)workerValid=false;if(error.status===409){item.editable=false;item.cancellable=false;_edit=null;}}
   if(state.stage==='mine')render();updateStatus();
 }
@@ -585,6 +594,7 @@ async function openMine(){
 async function cancelFromList(clientId){
   var item=_mine.items.find(function(row){return row.client_id===clientId;});if(!item||item.busy||!mineRowState(item).can)return;
   if(!window.confirm((item.management_no||'未送信の登録')+' を取り消しますか？\n取り消した商品は出品されません。'))return;
+  if(_edit&&_edit.client_id===clientId)_edit=null;
   var wasToday=item.pending||isToday(item.created_at);
   item.busy=true;_mine.error='';render();
   try{await cancelRegistration(clientId);item.cancelled=true;item.cancellable=false;item.pending=false;if(wasToday)subToday();}
@@ -606,11 +616,11 @@ document.getElementById('app').addEventListener('click',function(event){
   if(target.dataset.action==='no-label'){startWithoutLabel();return;}
   if(target.dataset.action==='mine'){openMine();return;}
   if(target.dataset.action==='cancel-this'){cancelThis();return;}
-  if(target.dataset.cancel){_edit=null;cancelFromList(target.dataset.cancel);return;}
+  if(target.dataset.cancel){if(_edit&&_edit.busy)return;cancelFromList(target.dataset.cancel);return;}
   if(target.dataset.edit){openEdit(target.dataset.edit);return;}
-  if(target.dataset.action==='edit-close'){_edit=null;render();return;}
-  if(target.dataset.editCondition&&_edit){_edit.condition=target.dataset.editCondition;render();return;}
-  if(target.dataset.editQuantity&&_edit){_edit.quantity=Math.max(1,Math.min(999,_edit.quantity+Number(target.dataset.editQuantity)));render();return;}
+  if(target.dataset.action==='edit-close'){if(_edit&&_edit.busy)return;_edit=null;render();return;}
+  if(target.dataset.editCondition&&_edit&&!_edit.busy){_edit.condition=target.dataset.editCondition;render();return;}
+  if(target.dataset.editQuantity&&_edit&&!_edit.busy){_edit.quantity=Math.max(1,Math.min(999,_edit.quantity+Number(target.dataset.editQuantity)));render();return;}
   if(target.dataset.shape){setShape(target.dataset.shape);return;}
   if(target.dataset.action==='relabel'){relabel();return;}
   if(target.dataset.action==='add-photo'){document.getElementById('photo-input').click();return;}
