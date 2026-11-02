@@ -75,7 +75,8 @@ test('画面が裏に回ったら読み取りを閉じる',function(){
   assert.match(html,/visibilitychange[^\n]*closeScan/);
 });
 test('撮影して読み取るときは、読めなければ写真を回して読み直す',function(){
-  var body=pick('decodeStill');
+  var s=html.indexOf('async function decodeStill('),body=html.slice(s,html.indexOf('\nfunction guideBox(',s));
+  assert.ok(s>=0);
   assert.match(body,/angles=\[-25,25,-45,45\]/);
   assert.match(body,/cx\.rotate\(rad\)/);
 });
