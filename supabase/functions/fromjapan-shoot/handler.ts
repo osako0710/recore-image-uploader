@@ -250,6 +250,123 @@ async function findRegistered(code: string, supabase: SupabaseRequest): Promise<
   return value.length ? value[0] as ShotRow : null;
 }
 
+// 棚番。全角は半角に、英字は大文字にそろえる。空白は詰める。20字まで。
+export function normalizeShelf(value: unknown): string {
+  let s = String(value ?? '');
+  if (s.normalize) s = s.normalize('NFKC');
+  s = s.replace(/\s+/g, '').toUpperCase();
+  if (!s || s.length > 20 || /[\u0000-\u001f<>"'`\\]/.test(s)) return '';
+  return s;
+}
+
+export type ListingState = 'listed' | 'sold' | 'none';
+export type Listing = { state: ListingState; product_id: string | null; fj_no: string | null; name: string | null; listed_count: number };
+type ListingRow = { product_id: string; fj_no: string | null; name: string; status: string };
+
+// Shops の出品の状態。出品中と出品停止は「出品済み」、売り切れだけなら「売れた」、無ければ「出品なし」。
+export const LISTED_STATUSES = ['on_sale', 'stopped'];
+export function judgeListing(rows: ListingRow[]): Listing {
+  const listed = rows.filter((row) => LISTED_STATUSES.includes(row.status));
+  const sold = rows.filter((row) => row.status === 'sold');
+  const pick = listed[0] ?? sold[0] ?? null;
+  const state: ListingState = listed.length ? 'listed' : sold.length ? 'sold' : 'none';
+  return {
+    state,
+    product_id: pick ? pick.product_id : null,
+    fj_no: pick ? pick.fj_no ?? null : null,
+    name: pick ? pick.name : null,
+    listed_count: listed.length,
+  };
+}
+
+// fj_listings がまだ無い環境でも撮影を止めないよう、読めないときは null を返す。
+async function findListing(code: string, supabase: SupabaseRequest): Promise<Listing | null> {
+  if (!code) return null;
+  const query = `fj_listings?select=product_id,fj_no,name,status&management_no=eq.${encodeURIComponent(code)}&limit=20`;
+  try {
+    const response = await supabase(query);
+    if (!response.ok) { await response.body?.cancel(); return null; }
+    const value = await response.json();
+    return Array.isArray(value) ? judgeListing(value as ListingRow[]) : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+export type SimilarListing = { product_id: string; fj_no: string | null; name: string };
+// 8桁が管理コードに入っていない古い出品から、名前の似たものを返す。読めないときは空にする。
+async function findSimilar(name: string, supabase: SupabaseRequest): Promise<SimilarListing[]> {
+  const q = name.trim().slice(0, 200);
+  if (q.length < 4) return [];
+  try {
+    const response = await supabase('rpc/fj_similar_listings', { method: 'POST', body: JSON.stringify({ q, n: 3 }) });
+    if (!response.ok) { await response.body?.cancel(); return []; }
+    const value = await response.json();
+    if (!Array.isArray(value)) return [];
+    return value.slice(0, 3).map((row: Record<string, unknown>) => ({
+      product_id: String(row.product_id),
+      fj_no: typeof row.fj_no === 'string' ? row.fj_no : null,
+      name: String(row.name ?? ''),
+    }));
+  } catch (_error) {
+    return [];
+  }
+}
+
+async function enforceMarkLimit(workerId: string, supabase: SupabaseRequest, now: Date): Promise<void> {
+  const since = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
+  const query = `fj_shelf_marks?select=mark_id&worker_id=eq.${encodeURIComponent(workerId)}` +
+    `&created_at=gte.${encodeURIComponent(since)}&limit=401`;
+  const value = await jsonOrError(await supabase(query), 'database_failed');
+  if (!Array.isArray(value)) throw new HttpError(502, 'database_failed');
+  if (value.length >= 400) throw new HttpError(429, 'rate_limited');
+}
+
+// 出品済みの商品に棚番を付ける。種類は画面の申告ではなく、サーバーが出品の状態から決める。
+async function saveShelf(body: Record<string, unknown>, workerId: string, deps: Dependencies): Promise<Record<string, unknown>> {
+  if (!onlyKeys(body, ['action', 'w', 'code', 'client_id', 'shelf', 'product_id'])) throw new HttpError(400, 'unknown_field');
+  const code = requireCode(body.code);
+  const clientId = String(body.client_id ?? '');
+  if (!UUID_RE.test(clientId)) throw new HttpError(400, 'bad_client_id');
+  const supabase = makeSupabase(deps);
+  const listing = await findListing(code, supabase);
+  if (!listing) throw new HttpError(503, 'listing_unavailable');
+  let kind: string;
+  let productId: string | null = listing.product_id;
+  if (listing.state === 'listed') kind = 'listed';
+  else if (listing.state === 'sold') kind = 'sold_hold';
+  else {
+    const chosen = typeof body.product_id === 'string' ? body.product_id : '';
+    if (!chosen || chosen.length > 100) throw new HttpError(409, 'not_listed');
+    const query = `fj_listings?select=product_id,status&product_id=eq.${encodeURIComponent(chosen)}&management_no=is.null&limit=1`;
+    const rows = await jsonOrError(await supabase(query), 'database_failed');
+    if (!Array.isArray(rows) || rows.length !== 1 || !LISTED_STATUSES.includes(String((rows[0] as ListingRow).status))) {
+      throw new HttpError(409, 'not_listed');
+    }
+    kind = 'listed_by_name';
+    productId = chosen;
+  }
+  const shelf = normalizeShelf(body.shelf);
+  if (!shelf && kind !== 'sold_hold') throw new HttpError(400, 'bad_shelf');
+  await enforceMarkLimit(workerId, supabase, (deps.now ?? (() => new Date()))());
+  const response = await supabase('fj_shelf_marks', {
+    method: 'POST',
+    headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({ management_no: code, shelf: shelf || null, kind, product_id: productId, worker_id: workerId, client_id: clientId }),
+  });
+  if (!response.ok && response.status !== 409) { await response.body?.cancel(); throw new HttpError(502, 'database_failed'); }
+  await response.body?.cancel();
+  // 同じ client_id の送り直しは、1回目に登録した棚番を返す。画面の表示と保存した棚番を食い違わせない。
+  if (response.status === 409) {
+    const query = `fj_shelf_marks?select=shelf,kind&client_id=eq.${encodeURIComponent(clientId)}&limit=1`;
+    const rows = await jsonOrError(await supabase(query), 'database_failed');
+    if (!Array.isArray(rows) || rows.length !== 1) throw new HttpError(502, 'database_failed');
+    const saved = rows[0] as { shelf: string | null; kind: string };
+    return { ok: true, kind: saved.kind, shelf: saved.shelf ?? '', fj_no: listing.fj_no };
+  }
+  return { ok: true, kind, shelf, fj_no: listing.fj_no };
+}
+
 export function parseDraftText(text: string): unknown {
   const start = text.indexOf('{');
   const end = text.lastIndexOf('}');
@@ -553,6 +670,9 @@ async function reserveShot(body: Record<string, unknown>, workerId: string, code
     typeof draft.genre !== 'string' || draft.genre.length > 200) throw new HttpError(400, 'bad_draft');
   const memo = body.memo ?? '';
   if (typeof memo !== 'string' || memo.length > 500) throw new HttpError(400, 'bad_memo');
+  // 棚番を送らない古い端末の未送信分も受け付ける。送ってきたときは形を確かめる。
+  const shelf = body.shelf === undefined || body.shelf === null || body.shelf === '' ? null : normalizeShelf(body.shelf);
+  if (shelf === '') throw new HttpError(400, 'bad_shelf');
   if (await findRegistered(code, supabase)) throw new HttpError(409, 'number_registered');
   await dropStaleReservation(code, supabase, now);
   const response = await supabase('fj_shots?select=shot_id,management_no,photo_urls,completed_at', {
@@ -569,6 +689,7 @@ async function reserveShot(body: Record<string, unknown>, workerId: string, code
       ai_description: draft.description,
       ai_genre: draft.genre,
       memo,
+      ...(shelf ? { shelf } : {}),
       import_status: 'held',
       hold_reason: '写真保存中',
     }),
@@ -676,7 +797,7 @@ async function savePhoto(photo: Photo, managementNo: string, shotId: string, ind
 }
 
 async function saveShot(body: Record<string, unknown>, workerId: string, deps: Dependencies): Promise<Record<string, unknown>> {
-  if (!onlyKeys(body, ['action', 'w', 'code', 'client_id', 'candidate_id', 'condition', 'quantity', 'photos', 'draft', 'memo'])) {
+  if (!onlyKeys(body, ['action', 'w', 'code', 'client_id', 'candidate_id', 'condition', 'quantity', 'photos', 'draft', 'memo', 'shelf'])) {
     throw new HttpError(400, 'unknown_field');
   }
   const code = requireCode(body.code);
@@ -721,8 +842,10 @@ export async function handle(req: Request, deps: Dependencies): Promise<Response
       const code = requireCode(url.searchParams.get('code') ?? '');
       const candidates = await getCandidates(code, supabase);
       const registered = await findRegistered(code, supabase);
+      const listing = await findListing(code, supabase);
       return respond({
         code,
+        listing,
         candidates,
         registered: registered ? { management_no: registered.management_no, created_at: registered.created_at ?? null } : null,
       });
@@ -748,9 +871,14 @@ export async function handle(req: Request, deps: Dependencies): Promise<Response
         chosenId: typeof body.candidate_id === 'string' ? body.candidate_id : null,
         prevName: typeof body.prev_name === 'string' ? body.prev_name : '',
       };
-      return respond(await createDraft(photos, code, deps, hint));
+      const draft = await createDraft(photos, code, deps, hint);
+      // 出品が見つからない番号だけ、8桁の入っていない古い出品から似た名前を探す。
+      const listing = code && !hint.prevName && !hint.chosenId ? await findListing(code, supabase) : null;
+      const similar = listing && listing.state === 'none' && draft.name ? await findSimilar(draft.name, supabase) : [];
+      return respond({ ...draft, similar });
     }
     if (body.action === 'save') return respond(await saveShot(body, workerId, deps));
+    if (body.action === 'shelf') return respond(await saveShelf(body, workerId, deps));
     throw new HttpError(400, 'bad_action');
   } catch (error) {
     if (error instanceof HttpError) return fail(error.status, error.code);

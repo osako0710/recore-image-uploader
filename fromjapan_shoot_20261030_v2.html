@@ -23,6 +23,8 @@ main{width:100%;max-width:560px;margin:0 auto;padding:12px}
 .hint{margin:6px 0 0;color:var(--sub);font-size:13px}
 .step{display:flex;align-items:center;gap:10px;margin-bottom:12px;color:var(--sub);font-size:13px;font-weight:700}
 .step span{display:grid;width:27px;height:27px;place-items:center;border-radius:50%;background:var(--soft);color:var(--main)}
+.shelf-input{display:block;width:100%;margin-top:6px;padding:12px;border:2px solid var(--line);border-radius:12px;background:#fff;font-size:22px;font-weight:700;letter-spacing:.06em}
+.similar{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line)}.similar p{margin:0;flex:1}.similar button{flex:none;padding:10px 12px;border:2px solid var(--line);border-radius:12px;background:#fff;font-weight:700}
 .code-input{display:block;width:100%;margin-top:8px;padding:14px 12px;border:2px solid var(--line);border-radius:14px;background:#fff;font-size:34px;font-weight:800;letter-spacing:.12em;text-align:center;font-variant-numeric:tabular-nums}
 .code-input:focus{outline:none;border-color:var(--main)}
 .code-view{margin:4px 0 0;font-size:34px;font-weight:900;letter-spacing:.12em;color:var(--main);font-variant-numeric:tabular-nums}
@@ -83,7 +85,7 @@ var worker=params.get('w')||'';
 var mock=isMockMode(location.search);
 var workerValid=mock||/^[A-Za-z0-9]{8}$/.test(worker);
 
-function newState(){return {stage:'code',codeInput:'',code:'',registered:null,photos:[],candidates:[],visibleCandidates:[],selected:null,selectedSet:false,condition:'',quantity:1,draft:{name:'',description:'',genre:''},size:'',memo:'',draftBusy:false,draftDone:false,draftCandidate:null,nameEdited:false,aiUnavailable:false,autoPicked:false,error:'',managementNo:'',clientId:''};}
+function newState(){return {stage:'code',codeInput:'',code:'',registered:null,photos:[],candidates:[],visibleCandidates:[],selected:null,selectedSet:false,condition:'',quantity:1,draft:{name:'',description:'',genre:''},size:'',memo:'',draftBusy:false,draftDone:false,draftCandidate:null,nameEdited:false,aiUnavailable:false,autoPicked:false,error:'',managementNo:'',clientId:'',listing:null,similar:[],shelf:safeStorageGet('fromjapan_shoot_shelf',''),markKind:'',markBusy:false};}
 function esc(value){return String(value==null?'':value).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function normCode(raw){
   var s=String(raw==null?'':raw);if(s.normalize)s=s.normalize('NFKC');
@@ -91,12 +93,14 @@ function normCode(raw){
   return /^\d{8}$/.test(s)?s:'';
 }
 function codeDigits(raw){var s=String(raw==null?'':raw);if(s.normalize)s=s.normalize('NFKC');return s.replace(/\D/g,'').slice(0,8);}
+function normShelf(raw){var s=String(raw==null?'':raw);if(s.normalize)s=s.normalize('NFKC');s=s.replace(/\s+/g,'').toUpperCase();if(!s||s.length>20||/[\u0000-\u001f<>"'`\\]/.test(s))return '';return s;}
 function formatCode(code){return code.length>4?code.slice(0,4)+' '+code.slice(4):code;}
 function isMockMode(search){return new URLSearchParams(search).get('mock')==='1';}
 function photoRule(count){return {enough:count>=2,full:count>=8,remaining:Math.max(0,8-count)};}
 function primaryState(value){
   if(value.stage==='receipt')return {action:'next',label:'次の商品へ',enabled:true};
   if(value.stage==='code')return {action:'code',label:'この番号で進む',enabled:value.workerValid!==false&&!!value.codeReady};
+  if(value.stage==='listed'){if(value.listingState==='sold')return {action:'shelf',label:'担当者に渡す',enabled:!value.busy};return {action:'shelf',label:value.busy?'登録しています':'棚番を登録',enabled:!value.busy&&!!value.shelfReady};}
   if(value.photos<2)return {action:'photo',label:'写真を撮る（あと'+(2-value.photos)+'枚）',enabled:true};
   if(!value.ready&&value.waiting)return {action:'save',label:value.waiting,enabled:false};
   return {action:'save',label:'登録して次へ',enabled:!!value.ready};
@@ -139,13 +143,14 @@ function mockCandidates(){return [
 async function request(path,options){
   if(mock){
     await new Promise(function(resolve){setTimeout(resolve,180);});
-    if(!options){var q=new URLSearchParams(path.replace(/^\?/,''));var code=q.get('code')||'';return {code:code,candidates:code==='00000000'?[]:mockCandidates(),registered:code==='99999999'?{management_no:code,created_at:'2026-10-29T00:00:00Z'}:null};}
+    if(!options){var q=new URLSearchParams(path.replace(/^\?/,''));var code=q.get('code')||'';var listing=code==='11111111'?{state:'listed',product_id:'m1',fj_no:'FJ1234',name:'ネイビーのショルダーバッグ',listed_count:1}:code==='22222222'?{state:'sold',product_id:'m2',fj_no:'FJ1235',name:'白いスニーカー',listed_count:0}:{state:'none',product_id:null,fj_no:null,name:null,listed_count:0};return {code:code,listing:listing,candidates:code==='00000000'?[]:mockCandidates(),registered:code==='99999999'?{management_no:code,created_at:'2026-10-29T00:00:00Z'}:null};}
     var body=JSON.parse(options.body||'{}');
     if(body.action==='draft'){
       if(params.get('ai')==='0'){var unavailable=new Error('ai_unavailable');unavailable.status=503;throw unavailable;}
       if(body.candidate_id||body.prev_name){var picked=mockCandidates().find(function(item){return item.candidate_id===body.candidate_id;});return {name:(picked?picked.name:'ネイビー ショルダーバッグ')+' 作り直し',description:'作り直した説明です。',genre:'バッグ',candidate_id:body.candidate_id||null,confidence:body.candidate_id?1:.5,top_ids:[]};}
-      return {name:'ネイビーのショルダーバッグ',description:'落ち着いた色のバッグです。写真の状態をご確認ください。',genre:'バッグ',candidate_id:mockCandidates()[0].candidate_id,confidence:.94,top_ids:[]};
+      return {name:'ネイビーのショルダーバッグ',description:'落ち着いた色のバッグです。写真の状態をご確認ください。',genre:'バッグ',candidate_id:mockCandidates()[0].candidate_id,confidence:.94,top_ids:[],similar:body.code==='33333333'?[{product_id:'m9',fj_no:'FJ0999',name:'ネイビー ショルダーバッグ 古い出品'}]:[]};
     }
+    if(body.action==='shelf')return {ok:true,kind:body.product_id?'listed_by_name':body.code==='22222222'?'sold_hold':'listed',shelf:normShelf(body.shelf),fj_no:null};
     if(body.action==='save'){if(body.code==='99999999'){var dup=new Error('number_registered');dup.status=409;throw dup;}return {ok:true,management_no:body.code,photo_urls:[]};}
   }
   var response=await fetch(API+path,options);
@@ -185,9 +190,9 @@ async function updateStatus(){
   status.className='status';status.textContent='今日 '+todayCount()+'件登録 ・ 保存済み ✓';
 }
 function resetItem(){_draftSeq++;_codeSeq++;state=newState();render();focusCode();}
-function readyToSave(){return state.photos.length>=2&&state.draftDone&&!state.draftBusy&&state.selectedSet&&!!state.condition&&!state.registered;}
-function waitingText(){if(state.registered)return 'この番号は登録済みです';if(state.draftBusy||!state.draftDone)return '商品名を確認しています';if(!state.selectedSet)return '商品を選んでください';if(!state.condition)return '商品の状態を選んでください';return '';}
-function primaryInfo(){return primaryState({stage:state.stage,photos:state.photos.length,ready:readyToSave(),waiting:waitingText(),workerValid:workerValid,codeReady:!!normCode(state.codeInput)});}
+function readyToSave(){return state.photos.length>=2&&state.draftDone&&!state.draftBusy&&state.selectedSet&&!!state.condition&&!!normShelf(state.shelf)&&!state.registered;}
+function waitingText(){if(state.registered)return 'この番号は登録済みです';if(state.draftBusy||!state.draftDone)return '商品名を確認しています';if(!state.selectedSet)return '商品を選んでください';if(!state.condition)return '商品の状態を選んでください';if(!normShelf(state.shelf))return '棚番を入力してください';return '';}
+function primaryInfo(){return primaryState({stage:state.stage,photos:state.photos.length,ready:readyToSave(),waiting:waitingText(),workerValid:workerValid,codeReady:!!normCode(state.codeInput),listingState:state.listing&&state.listing.state,shelfReady:!!normShelf(state.shelf),busy:state.markBusy});}
 function candidateHtml(){
   if(!state.draftDone||!state.candidates.length)return '';
   var title=state.aiUnavailable?'商品を選んでください':'写真に合う商品を選んでください';
@@ -197,9 +202,18 @@ function candidateHtml(){
   return '<section class="card"><div class="step"><span>3</span>'+esc(title)+'</div>'+note+'<div class="choices">'+rows+'</div></section>';
 }
 function focusCode(){var input=document.getElementById('code-input');if(input)input.focus();}
+function shelfInputHtml(){return '<label class="name-label" for="shelf-input">棚番</label><input id="shelf-input" class="shelf-input" type="text" autocomplete="off" spellcheck="false" maxlength="20" placeholder="例 A-12" value="'+esc(state.shelf)+'">';}
+function similarHtml(){
+  if(!state.similar.length||!state.draftDone)return '';
+  var html='<section class="card"><div class="step"><span>!</span>同じ商品の出品がありますか</div><p class="hint">番号の入っていない出品に似た名前があります。</p>';
+  state.similar.forEach(function(item){html+='<div class="similar"><p>'+esc([item.fj_no,item.name].filter(Boolean).join(' '))+'</p><button type="button" data-similar="'+esc(item.product_id)+'">この出品と同じ</button></div>';});
+  return html+'<button class="text-link" type="button" data-similar="none">どれでもない</button></section>';
+}
 function render(){
   var app=document.getElementById('app'),html='';
-  if(state.stage==='receipt'){
+  if(state.stage==='receipt'&&state.markKind){
+    html=state.markKind==='sold_hold'?'<section class="card receipt"><h1>担当者に渡してください</h1><div class="management">'+esc(formatCode(state.code))+'</div><p>棚には置かないでください</p></section>':'<section class="card receipt"><h1>棚番を登録しました</h1><div class="management">'+esc(normShelf(state.shelf))+'</div><p>この棚に置いてください</p></section>';
+  }else if(state.stage==='receipt'){
     var no=state.managementNo||'未送信';
     html='<section class="card receipt"><h1>登録を受け付けました</h1><div class="management">'+esc(state.managementNo?formatCode(no):no)+'</div><p>'+(state.managementNo?'ラベルの番号のまま管理します':'つながると登録が終わります')+'</p></section>';
   }else{
@@ -214,7 +228,14 @@ function render(){
       html+='<button class="text-link" type="button" data-action="recode"'+(state.draftBusy?' disabled':'')+'>番号を直す</button>';
     }
     html+='</section>';
-    if(state.stage!=='code'){
+    if(state.stage==='listed'){
+      var item=state.listing||{};
+      if(item.state==='sold'){html+='<section class="card"><div class="step"><span>2</span>出品の確認</div><h1>売れた商品です</h1><p class="hint">'+esc([item.fj_no,item.name].filter(Boolean).join(' '))+'</p><p>棚に置かずに担当者へ渡してください。</p>';}
+      else{html+='<section class="card"><div class="step"><span>2</span>出品の確認</div><h1>出品中の商品です</h1><p class="hint">'+esc([item.fj_no,item.name].filter(Boolean).join(' '))+'</p><p>撮影はいりません。置く棚の番号を入れてください。</p>'+shelfInputHtml();}
+      if(state.error)html+='<p class="error">'+esc(state.error)+'</p>';
+      html+='</section>';
+    }
+    if(state.stage!=='code'&&state.stage!=='listed'){
       html+='<section class="card"><div class="step"><span>2</span>商品の写真</div>';
       if(state.draftDone&&state.photos.length>=2)html+='<label class="name-label" for="edit-name">商品名</label><textarea id="edit-name" class="name-edit" rows="2" maxlength="500"'+(state.draftBusy?' disabled':'')+'>'+esc(state.draft.name)+'</textarea>'+(state.aiUnavailable?'':'<button class="text-link" type="button" data-action="regen-name"'+(state.draftBusy?' disabled':'')+'>商品名を作り直す</button>');
       else html+='<h1>'+esc(state.draft.name||'正面と、裏かタグを撮ってください')+'</h1>';
@@ -224,11 +245,11 @@ function render(){
       if(state.photos.length>=2&&state.photos.length<MAX_PHOTOS)html+='<button class="text-link" type="button" data-action="add-photo">写真を追加</button>';
       if(state.draftBusy)html+='<p class="loading">'+(state.draftDone?'商品名を作り直しています。':'商品名を確認しています。状態は先に選べます。')+'</p>';
       if(state.error)html+='<p class="error">'+esc(state.error)+'</p>';
-      var cands=candidateHtml();html+='</section>'+cands;
+      var cands=candidateHtml();html+='</section>'+cands+similarHtml();
       if(state.photos.length>=2){
       html+='<section class="card"><div class="step"><span>'+(cands?4:3)+'</span>商品の状態</div><div class="condition">';
       [['new','新品・未使用'],['good','目立った傷なし'],['damaged','傷や汚れあり']].forEach(function(item){html+='<button type="button" class="'+(state.condition===item[0]?'on':'')+'" data-condition="'+item[0]+'">'+item[1]+'</button>';});
-      html+='</div><div class="quantity"><strong>数量</strong><div class="counter"><button type="button" data-quantity="-1" aria-label="数量を減らす">−</button><output>'+state.quantity+'</output><button type="button" data-quantity="1" aria-label="数量を増やす">＋</button></div></div>';
+      html+='</div><div class="quantity"><strong>数量</strong><div class="counter"><button type="button" data-quantity="-1" aria-label="数量を減らす">−</button><output>'+state.quantity+'</output><button type="button" data-quantity="1" aria-label="数量を増やす">＋</button></div></div>'+shelfInputHtml();
       html+='<details><summary>⋯ 詳しく</summary><label for="edit-description">説明</label><textarea id="edit-description" maxlength="1000">'+esc(state.draft.description)+'</textarea><label for="edit-size">サイズ</label><input id="edit-size" type="text" maxlength="100" value="'+esc(state.size)+'"><label for="edit-memo">メモ</label><textarea id="edit-memo" maxlength="500">'+esc(state.memo)+'</textarea><div id="memo-count" class="count">'+state.memo.length+' / 500</div></details></section>';
       }
     }
@@ -236,8 +257,8 @@ function render(){
   app.innerHTML=html;
   var info=primaryInfo(),primary=document.getElementById('primary');primary.textContent=info.label;primary.disabled=!info.enabled;primary.dataset.action=info.action;
 }
-function clearDraft(){_draftSeq++;state.draftBusy=false;state.draftDone=false;state.draftCandidate=null;state.visibleCandidates=[];state.selected=null;state.selectedSet=false;state.autoPicked=false;state.aiUnavailable=false;state.nameEdited=false;state.draft={name:'',description:'',genre:''};}
-function recode(){if(state.draftBusy)return;_codeSeq++;clearDraft();state.stage='code';state.codeInput=state.code;state.code='';state.registered=null;state.candidates=[];state.error='';_candidatesReady=Promise.resolve();render();focusCode();}
+function clearDraft(){_draftSeq++;state.draftBusy=false;state.draftDone=false;state.draftCandidate=null;state.similar=[];state.visibleCandidates=[];state.selected=null;state.selectedSet=false;state.autoPicked=false;state.aiUnavailable=false;state.nameEdited=false;state.draft={name:'',description:'',genre:''};}
+function recode(){if(state.draftBusy)return;_codeSeq++;clearDraft();state.stage='code';state.codeInput=state.code;state.code='';state.registered=null;state.candidates=[];state.listing=null;state.similar=[];state.error='';_candidatesReady=Promise.resolve();render();focusCode();}
 function submitCode(){
   var code=normCode(state.codeInput);
   if(!code){state.error='8桁の数字を入力してください';render();focusCode();return;}
@@ -247,7 +268,7 @@ async function loadCode(code){
   var seq=++_codeSeq;
   state.stage='photos';state.code=code;state.registered=null;state.error='';render();
   _candidatesReady=request('?w='+encodeURIComponent(worker)+'&code='+encodeURIComponent(code));
-  try{var value=await _candidatesReady;if(seq!==_codeSeq)return;state.candidates=Array.isArray(value.candidates)?value.candidates:[];state.registered=value.registered||null;}
+  try{var value=await _candidatesReady;if(seq!==_codeSeq)return;state.candidates=Array.isArray(value.candidates)?value.candidates:[];state.registered=value.registered||null;state.listing=value.listing||null;if(state.listing&&(state.listing.state==='listed'||state.listing.state==='sold')&&!state.registered){_draftSeq++;state.draftBusy=false;state.stage='listed';render();updateStatus();focusShelf();return;}}
   catch(error){if(seq!==_codeSeq)return;state.candidates=[];state.error=error.status===403?'この URL は使えません。担当者に連絡してください':'商品の情報を読み込めませんでした。写真から登録を続けられます。';if(error.status===403)workerValid=false;}
   if(state.photos.length>=2&&!state.draftBusy&&!state.draftDone)createDraft();
   render();updateStatus();
@@ -269,6 +290,7 @@ async function createDraft(opts){
     if(seq!==_draftSeq)return;
     state.draft={name:publicText(value.name),description:publicText(value.description),genre:publicText(value.genre)};state.nameEdited=false;state.draftCandidate=value.candidate_id||null;
     if(redo){state.draftBusy=false;if(shouldRedoForPick(state.selected)){createDraft({redo:true});return;}render();return;}
+    state.similar=Array.isArray(value.similar)?value.similar.slice(0,3):[];
     var chosen=state.candidates.find(function(item){return item.candidate_id===value.candidate_id;});
     state.visibleCandidates=orderedCandidates(state.candidates,value.top_ids,3);
     if(chosen&&!state.visibleCandidates.some(function(item){return item.candidate_id===chosen.candidate_id;}))state.visibleCandidates[Math.min(state.visibleCandidates.length,2)]=chosen;
@@ -291,7 +313,7 @@ function currentDetails(){return {name:(document.getElementById('edit-name')||{}
 function saveBody(){
   var details=currentDetails(),description=details.description;if(details.size)description+=(description?'\n':'')+'サイズ: '+details.size;
   state.draft={name:details.name,description:details.description,genre:state.draft.genre};state.size=details.size;state.memo=details.memo;state.clientId=state.clientId||makeUuid();
-  return {action:'save',w:worker,code:state.code,client_id:state.clientId,candidate_id:state.selected,condition:state.condition,quantity:state.quantity,photos:state.photos.map(function(photo){return {media_type:'image/jpeg',base64:photo.base64};}),draft:{name:details.name,description:description,genre:state.draft.genre},memo:details.memo.slice(0,500)};
+  return {action:'save',w:worker,code:state.code,client_id:state.clientId,candidate_id:state.selected,condition:state.condition,quantity:state.quantity,photos:state.photos.map(function(photo){return {media_type:'image/jpeg',base64:photo.base64};}),draft:{name:details.name,description:description,genre:state.draft.genre},memo:details.memo.slice(0,500),shelf:normShelf(state.shelf)};
 }
 function saveErrorText(error){
   if(error.status===403)return 'この URL は使えません。担当者に連絡してください';
@@ -311,9 +333,37 @@ async function saveItem(){
     if((error.status&&error.status<500)||error.message==='number_in_progress'){state.error=saveErrorText(error);if(error.status===403)workerValid=false;if(error.message==='number_registered')state.registered={management_no:state.code};render();updateStatus();return;}
     try{await queuePut(body);state.managementNo='';}catch(queueError){state.error='端末に保存できませんでした。空き容量を確認して、もう一度押してください。';render();return;}
   }
-  addToday();state.stage='receipt';render();updateStatus();
+  safeStorageSet('fromjapan_shoot_shelf',normShelf(state.shelf));addToday();state.stage='receipt';render();updateStatus();
 }
-document.getElementById('primary').addEventListener('click',function(){var action=this.dataset.action;if(action==='code')submitCode();else if(action==='photo')document.getElementById('photo-input').click();else if(action==='save')saveItem();else if(action==='next')resetItem();});
+function focusShelf(){var input=document.getElementById('shelf-input');if(input)input.focus();}
+function shelfBody(){
+  state.clientId=state.clientId||makeUuid();
+  var body={action:'shelf',w:worker,code:state.code,client_id:state.clientId,shelf:normShelf(state.shelf)};
+  if(state.listing&&state.listing.state==='listed_by_name')body.product_id=state.listing.product_id;
+  return body;
+}
+function shelfErrorText(error){
+  if(error.status===403)return 'この URL は使えません。担当者に連絡してください';
+  if(error.message==='bad_shelf')return '棚番を確かめてください';
+  if(error.message==='not_listed')return '出品が見つかりませんでした。番号を直して撮影してください';
+  if(error.status===429)return '登録が多すぎます。しばらく待ってからもう一度押してください。';
+  return 'つながりませんでした。もう一度押してください。';
+}
+async function saveShelf(){
+  if(state.markBusy)return;
+  var sold=state.listing&&state.listing.state==='sold';
+  if(!sold&&!normShelf(state.shelf)){state.error='棚番を入力してください';render();focusShelf();return;}
+  state.markBusy=true;state.error='';render();
+  try{var result=await request('',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(shelfBody())});state.markKind=result.kind||'listed';}
+  catch(error){state.markBusy=false;state.error=shelfErrorText(error);if(error.status===403)workerValid=false;render();return;}
+  state.markBusy=false;if(state.markKind!=='sold_hold')safeStorageSet('fromjapan_shoot_shelf',normShelf(state.shelf));state.stage='receipt';render();updateStatus();
+}
+function pickSimilar(id){
+  if(id==='none'){state.similar=[];render();return;}
+  var item=state.similar.find(function(row){return row.product_id===id;});if(!item)return;
+  _draftSeq++;state.draftBusy=false;state.listing={state:'listed_by_name',product_id:item.product_id,fj_no:item.fj_no,name:item.name,listed_count:1};state.stage='listed';state.error='';render();focusShelf();
+}
+document.getElementById('primary').addEventListener('click',function(){var action=this.dataset.action;if(action==='code')submitCode();else if(action==='photo')document.getElementById('photo-input').click();else if(action==='save')saveItem();else if(action==='shelf')saveShelf();else if(action==='next')resetItem();});
 document.getElementById('photo-input').addEventListener('change',function(){var file=this.files&&this.files[0];this.value='';addPhoto(file);});
 document.getElementById('app').addEventListener('click',function(event){
   var target=event.target.closest('button');if(!target)return;
@@ -322,6 +372,7 @@ document.getElementById('app').addEventListener('click',function(event){
   if(target.dataset.remove!==undefined){var index=Number(target.dataset.remove);state.photos.splice(index,1);if(state.photos.length<2){_draftSeq++;state.draftBusy=false;state.draftDone=false;state.visibleCandidates=[];state.selected=null;state.selectedSet=false;}render();return;}
   if(target.dataset.action==='regen-name'){if(!state.draftBusy)createDraft({redo:true,prevName:state.draft.name});return;}
   if(target.dataset.candidate!==undefined){state.autoPicked=false;state.selected=target.dataset.candidate==='none'?null:target.dataset.candidate;state.selectedSet=true;if(shouldRedoForPick(state.selected))createDraft({redo:true});else render();return;}
+  if(target.dataset.similar!==undefined){pickSimilar(target.dataset.similar);return;}
   if(target.dataset.condition){state.condition=target.dataset.condition;render();return;}
   if(target.dataset.quantity){state.quantity=Math.max(1,Math.min(999,state.quantity+Number(target.dataset.quantity)));render();}
 });
@@ -333,12 +384,13 @@ document.getElementById('app').addEventListener('input',function(event){
     var err=document.querySelector('#app .error');if(err)err.remove();
     return;
   }
+  if(event.target.id==='shelf-input'){state.shelf=event.target.value;var info=primaryInfo(),button=document.getElementById('primary');button.textContent=info.label;button.disabled=!info.enabled;var e2=document.querySelector('#app .error');if(e2&&state.stage==='listed')e2.remove();return;}
   if(event.target.id==='edit-name'){state.draft.name=event.target.value;state.nameEdited=true;}
   else if(event.target.id==='edit-description')state.draft.description=event.target.value;
   else if(event.target.id==='edit-size')state.size=event.target.value;
   else if(event.target.id==='edit-memo'){state.memo=event.target.value;var count=document.getElementById('memo-count');if(count)count.textContent=event.target.value.length+' / 500';}
 });
-document.getElementById('app').addEventListener('keydown',function(event){if(event.target.id==='code-input'&&event.key==='Enter'){event.preventDefault();submitCode();}});
+document.getElementById('app').addEventListener('keydown',function(event){if(event.target.id==='code-input'&&event.key==='Enter'){event.preventDefault();submitCode();}if(event.target.id==='shelf-input'&&event.key==='Enter'&&state.stage==='listed'){event.preventDefault();saveShelf();}});
 window.addEventListener('online',flushQueue);
 showIntro();render();updateStatus().then(flushQueue);focusCode();
 </script>
