@@ -79,8 +79,9 @@ test('撮影して読み取るで裏に回ったときは、読み取りの画�
   assert.match(html,/'scan-shot'\)\.addEventListener\('click',function\(\)\{_stillCapture=true;_stillPicked=false;/);
   assert.match(html,/function resumeAfterStill\(\)\{if\(!_stillPicked&&!_cam&&[^\n]*openScan\(\);\}/);
   assert.match(html,/setTimeout\(resumeAfterStill,1000\)/);
-  assert.match(html,/'scan-shot-input'\)\.addEventListener\('cancel',resumeAfterStill\)/);
-  assert.match(html,/if\(!file\)\{resumeAfterStill\(\);return;\}_stillPicked=true;/);
+  assert.match(html,/'scan-shot-input'\)\.addEventListener\('cancel',function\(\)\{_stillCapture=false;resumeAfterStill\(\);\}\)/);
+  assert.match(html,/_scanSession\+\+;_stillCapture=false;_stillPicked=false;/);
+  assert.match(html,/_stillCapture=false;if\(!file\)\{resumeAfterStill\(\);return;\}_stillPicked=true;/);
   assert.match(html,/stopScan\(\);document\.getElementById\('scan-layer'\)\.hidden=false;var session=\+\+_scanSession/);
 });
 test('ライトは切り替え中の再押下を受けず、頼んだ値を状態に入れる',function(){
