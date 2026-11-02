@@ -56,13 +56,18 @@ textarea{min-height:90px;resize:vertical}.count{text-align:right;color:var(--sub
 .error{margin:10px 0 0;color:var(--danger);font-size:14px;font-weight:700}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 @media(min-width:500px){.condition{grid-template-columns:1fr 1fr 1fr}.condition button{text-align:center}}
+.scan-open{display:flex;width:100%;min-height:52px;margin-top:10px;align-items:center;justify-content:center;border:2px solid var(--main);border-radius:14px;background:#fff;color:var(--main);font-size:17px;font-weight:800}
+.scan-layer{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;background:#0d1411;color:#fff;padding:calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom))}
+.scan-layer[hidden]{display:none}.scan-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.scan-head h2{margin:0;font-size:18px}.scan-head button{min-width:44px;min-height:44px;border:0;background:none;color:#fff;font-size:16px;text-decoration:underline}
+#reader-wrap{position:relative;flex:1;min-height:160px;overflow:hidden;border-radius:14px;background:#000;margin-top:12px}#scan-video{display:block;width:100%;height:100%;object-fit:cover}.scan-guide{position:absolute;left:5%;right:5%;top:32%;height:36%;border:3px solid #fff;border-radius:10px;box-shadow:0 0 0 9999px rgba(0,0,0,.35)}
+.scan-layer p{text-align:center;font-size:15px}.scan-shot{min-height:52px;border:1px solid #6d7c76;border-radius:12px;background:transparent;color:#fff;font-size:16px;font-weight:700}
 </style>
 </head>
 <body>
 <div id="status" class="status" role="status" aria-live="polite">準備しています</div>
 <main>
   <section id="intro" class="intro" hidden>
-    <p>1. 袋のラベルの8桁の数字を入力します</p>
+    <p>1. 袋のラベルの番号を読み取るか、入力します</p>
     <p>2. 正面と、裏かタグを撮ります</p>
     <p>3. 商品と状態を選んで登録します</p>
   </section>
@@ -70,6 +75,14 @@ textarea{min-height:90px;resize:vertical}.count{text-align:right;color:var(--sub
 </main>
 <div class="primary-wrap"><button id="primary" class="primary" type="button">この番号で進む</button></div>
 <input id="photo-input" class="sr-only" type="file" accept="image/*" capture="environment">
+<section id="scan-layer" class="scan-layer" hidden role="dialog" aria-modal="true" aria-label="ラベルを読み取る">
+  <div class="scan-head"><h2>ラベルのコードを枠に入れてください</h2><button id="scan-close" type="button">閉じる</button></div>
+  <div id="reader-wrap"><video id="scan-video" playsinline muted autoplay></video><div class="scan-guide"></div></div>
+  <p id="scan-tip">バーコードか QR コードを枠に入れてください</p>
+  <button id="scan-shot" class="scan-shot" type="button">撮影して読み取る</button>
+  <input id="scan-shot-input" class="sr-only" type="file" accept="image/*" capture="environment">
+</section>
+<script src="vendor/barcode-detector_3.2.2/ponyfill.js"></script>
 <script>
 'use strict';
 var API='https://pqfsanwopptslgdrdebn.supabase.co/functions/v1/fromjapan-shoot';
@@ -221,6 +234,7 @@ function render(){
     if(state.stage==='code'){
       html+='<h2>「(検)」の右の8桁の数字を入力してください</h2>';
       html+='<input id="code-input" class="code-input" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" maxlength="9" placeholder="0000 0000" aria-label="ラベルの8桁の数字" value="'+esc(formatCode(state.codeInput))+'">';
+      html+='<button class="scan-open" type="button" data-action="scan">カメラで読み取る</button>';
       if(state.error)html+='<p class="error">'+esc(state.error)+'</p>';
     }else{
       html+='<div class="code-view">'+esc(formatCode(state.code))+'</div>';
@@ -368,6 +382,7 @@ document.getElementById('photo-input').addEventListener('change',function(){var 
 document.getElementById('app').addEventListener('click',function(event){
   var target=event.target.closest('button');if(!target)return;
   if(target.dataset.action==='recode'){recode();return;}
+  if(target.dataset.action==='scan'){openScan();return;}
   if(target.dataset.action==='add-photo'){document.getElementById('photo-input').click();return;}
   if(target.dataset.remove!==undefined){var index=Number(target.dataset.remove);state.photos.splice(index,1);if(state.photos.length<2){_draftSeq++;state.draftBusy=false;state.draftDone=false;state.visibleCandidates=[];state.selected=null;state.selectedSet=false;}render();return;}
   if(target.dataset.action==='regen-name'){if(!state.draftBusy)createDraft({redo:true,prevName:state.draft.name});return;}
@@ -391,6 +406,124 @@ document.getElementById('app').addEventListener('input',function(event){
   else if(event.target.id==='edit-memo'){state.memo=event.target.value;var count=document.getElementById('memo-count');if(count)count.textContent=event.target.value.length+' / 500';}
 });
 document.getElementById('app').addEventListener('keydown',function(event){if(event.target.id==='code-input'&&event.key==='Enter'){event.preventDefault();submitCode();}if(event.target.id==='shelf-input'&&event.key==='Enter'&&state.stage==='listed'){event.preventDefault();saveShelf();}});
+
+// ラベルの読み取り。端末の BarcodeDetector が使えなければ、同梱の ZXing で読む（zigzag_shoot と同じ部品）
+var SCAN_FORMATS=['code_128','code_39','code_93','ean_13','ean_8','itf','codabar','qr_code'];
+var _cam=null,_detectorP=null,_scanSession=0;
+// 読めた中身から8桁の番号を取り出す。QR に他の文字が入っていても、8桁の数字の並びが1つだけなら採る
+function codeFromScan(raw){
+  var s=String(raw==null?'':raw);if(s.normalize)s=s.normalize('NFKC');
+  var runs=s.match(/\d+/g)||[],eights=[];
+  runs.forEach(function(r){if(r.length===8&&eights.indexOf(r)<0)eights.push(r);});
+  if(eights.length===1)return eights[0];
+  // 2321-3671 のように空白とハイフンで区切っただけの番号は、つないで採る
+  var joined=s.trim().replace(/[\s\-\u2010-\u2015\u30fc]/g,'');
+  if(!eights.length&&/^\d{8}$/.test(joined))return joined;
+  return '';
+}
+// 同じ値を2回続けて読めたら確定する（誤読を防ぐ）
+function confirmRead(last,raw){
+  var text=String(raw==null?'':raw).trim();
+  if(!text)return {last:last,text:''};
+  if(last.text!==text)return {last:{text:text,count:1},text:''};
+  if(last.count+1<2)return {last:{text:text,count:last.count+1},text:''};
+  return {last:{text:'',count:0},text:text};
+}
+function getDetector(){
+  if(_detectorP)return _detectorP;
+  _detectorP=(async function(){
+    var Native=window.BarcodeDetector;
+    if(Native){try{var supported=await Native.getSupportedFormats();if(SCAN_FORMATS.every(function(f){return supported.indexOf(f)>=0;}))return new Native({formats:SCAN_FORMATS});}catch(error){}}
+    var api=window.BarcodeDetectionAPI;if(!api)throw new Error('no_detector');
+    try{await api.prepareZXingModule({overrides:{locateFile:function(path,prefix){return /\.wasm$/.test(path)?'vendor/zxing/'+api.ZXING_WASM_VERSION+'/'+path:prefix+path;}},fireImmediately:true});}
+    catch(error){try{api.purgeZXingModule();}catch(error2){}throw error;}
+    return new api.BarcodeDetector({formats:SCAN_FORMATS});
+  })().catch(function(error){_detectorP=null;throw error;});
+  return _detectorP;
+}
+function enhanceForScan(cx,w,h){
+  try{var img=cx.getImageData(0,0,w,h),d=img.data,min=255,max=0,i,g;
+    for(i=0;i<d.length;i+=4){g=(d[i]*299+d[i+1]*587+d[i+2]*114)/1000;d[i]=d[i+1]=d[i+2]=g;if(g<min)min=g;if(g>max)max=g;}
+    if(max-min>8){var k=255/(max-min);for(i=0;i<d.length;i+=4){g=Math.max(0,Math.min(255,(d[i]-min)*k));d[i]=d[i+1]=d[i+2]=g;}}
+    cx.putImageData(img,0,0);}catch(error){}
+}
+// 撮った写真から読む。8桁を取り出せた中身だけを採る
+async function decodeStill(file){
+  var detector=await getDetector(),image=await loadImageFile(file),cv=document.createElement('canvas'),cx=cv.getContext('2d',{willReadFrequently:true});
+  var readCode=async function(){try{var found=await detector.detect(cv);for(var j=0;j<found.length;j++){var code=codeFromScan(found[j].rawValue);if(code)return code;}}catch(error){}return '';};
+  var rois=[[1,1],[0.9,0.4],[0.55,0.55],[0.7,0.25],[0.4,0.4]];
+  for(var i=0;i<rois.length;i++){
+    var rw=Math.round(image.width*rois[i][0]),rh=Math.round(image.height*rois[i][1]),rx=Math.round((image.width-rw)/2),ry=Math.round((image.height-rh)/2),sc=Math.min(2,2200/Math.max(rw,rh));
+    cv.width=Math.max(2,Math.round(rw*sc));cv.height=Math.max(2,Math.round(rh*sc));cx.drawImage(image,rx,ry,rw,rh,0,0,cv.width,cv.height);
+    var t1=await readCode();if(t1)return t1;
+    enhanceForScan(cx,cv.width,cv.height);
+    var t2=await readCode();if(t2)return t2;
+  }
+  return '';
+}
+function guideBox(vw,vh,cw,ch){
+  var scale=Math.max(cw/vw,ch/vh),ox=(vw*scale-cw)/2,oy=(vh*scale-ch)/2;
+  var gx=cw*0.02,gy=ch*0.27,gw=cw*0.96,gh=ch*0.46;
+  return {x:(gx+ox)/scale,y:(gy+oy)/scale,w:gw/scale,h:gh/scale};
+}
+function inGuide(hit,box){
+  var b=hit&&hit.boundingBox;if(!b||!box)return true;
+  var cx=b.x+b.width/2,cy=b.y+b.height/2;
+  return cx>=box.x&&cx<=box.x+box.w&&cy>=box.y&&cy<=box.y+box.h;
+}
+function setScanTip(text){document.getElementById('scan-tip').textContent=text;}
+function stopScan(){
+  if(!_cam)return;var cam=_cam;_cam=null;clearTimeout(cam.timer);
+  if(cam.stream)cam.stream.getTracks().forEach(function(track){try{track.stop();}catch(error){}});
+  cam.video.srcObject=null;
+}
+function closeScan(){_scanSession++;stopScan();document.getElementById('scan-layer').hidden=true;}
+// 読めた番号は入力欄に入れるだけにする。ラベルと見比べてから「この番号で進む」を押す
+function useScanned(code){
+  closeScan();if(state.stage!=='code')return;
+  state.codeInput=code;state.error='';render();
+  try{if(navigator.vibrate)navigator.vibrate(60);}catch(error){}
+}
+function scanFailed(message){closeScan();if(state.stage!=='code')return;state.error=message;render();}
+function scanTick(){
+  var cam=_cam;if(!cam)return;var video=cam.video;
+  if(video.readyState<2){cam.timer=setTimeout(scanTick,200);return;}
+  cam.detector.detect(video).then(function(found){
+    if(_cam!==cam)return;
+    var box=video.videoWidth&&video.clientWidth?guideBox(video.videoWidth,video.videoHeight,video.clientWidth,video.clientHeight):null;
+    var seen=(found||[]).filter(function(c){return typeof c.rawValue==='string'&&c.rawValue.trim()&&inGuide(c,box);});
+    // JAN など8桁にならないコードが先に見つかっても、枠内の別のラベルを読む
+    var code='';seen.some(function(c){code=codeFromScan(c.rawValue);return !!code;});
+    if(code){var next=confirmRead(cam.last,code);cam.last=next.last;if(next.text){useScanned(next.text);return;}}
+    else if(seen.length)setScanTip('8桁の番号が入っていないコードです。別のコードを枠に入れてください');
+    cam.timer=setTimeout(scanTick,200);
+  },function(){if(_cam===cam)cam.timer=setTimeout(scanTick,200);});
+}
+async function openScan(){
+  document.getElementById('scan-layer').hidden=false;setScanTip('バーコードか QR コードを枠に入れてください');
+  var video=document.getElementById('scan-video'),cam={video:video,stream:null,timer:0,detector:null,last:{text:'',count:0}};
+  stopScan();_cam=cam;_scanSession++;
+  try{
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error('no camera');
+    var detectorP=getDetector();detectorP.catch(function(){});
+    var stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}});
+    if(_cam!==cam){stream.getTracks().forEach(function(track){track.stop();});return;}
+    cam.stream=stream;video.srcObject=stream;
+    try{await video.play();}catch(error){}
+    try{cam.detector=await detectorP;}catch(error){if(_cam===cam)scanFailed('読み取りの準備ができませんでした。数字を入力してください');return;}
+    if(_cam===cam)cam.timer=setTimeout(scanTick,200);
+  }catch(error){
+    if(_cam===cam)setScanTip('カメラを使えません。「撮影して読み取る」を押すか、閉じて数字を入力してください');
+  }
+}
+document.getElementById('scan-close').addEventListener('click',closeScan);
+document.getElementById('scan-shot').addEventListener('click',function(){document.getElementById('scan-shot-input').click();});
+document.getElementById('scan-shot-input').addEventListener('change',function(){
+  var file=this.files&&this.files[0];this.value='';if(!file)return;
+  stopScan();var session=++_scanSession;setScanTip('読み取っています');
+  decodeStill(file).then(function(code){if(session!==_scanSession)return;if(code)useScanned(code);else setScanTip('読み取れませんでした。もう一度撮るか、閉じて数字を入力してください');},
+    function(){if(session===_scanSession)scanFailed('読み取りの準備ができませんでした。数字を入力してください');});
+});
 window.addEventListener('online',flushQueue);
 showIntro();render();updateStatus().then(flushQueue);focusCode();
 </script>
