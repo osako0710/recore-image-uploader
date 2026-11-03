@@ -26,7 +26,7 @@ main{width:100%;max-width:560px;margin:0 auto;padding:12px}
 .photo-row{display:flex;gap:8px;overflow-x:auto;padding:2px 0 8px;scrollbar-width:none}.photo-row::-webkit-scrollbar{display:none}
 .thumb{position:relative;flex:0 0 auto;min-width:69px;height:92px;border-radius:12px;overflow:hidden;background:#ece9e2}
 .thumb img{display:block;width:auto;height:100%}
-.shape{display:inline-flex;margin:0 0 10px;border:1px solid var(--line);border-radius:10px;overflow:hidden}.shape button{min-width:64px;min-height:40px;border:0;background:#fff;font-size:15px}.shape button.on{background:var(--main);color:#fff;font-weight:700}
+.shape{display:inline-flex;margin:0 0 10px;border:1px solid var(--line);border-radius:10px;overflow:hidden}.shape button{min-width:64px;min-height:40px;border:0;background:#fff;color:#14231e;font-size:15px}.shape button.on{background:var(--main);color:#fff;font-weight:700}
 .links{display:flex;flex-wrap:wrap;gap:4px 20px}
 .mine-row{display:flex;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}.mine-row img,.mine-row .noimg{flex:0 0 56px;width:56px;height:56px;border-radius:10px;object-fit:cover;background:#ece9e2}.mine-row .body{flex:1;min-width:0}.mine-row .no{font-weight:800}.mine-row .nm{font-size:13px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mine-row .tag{font-size:13px;color:var(--sub);white-space:nowrap}.mine-row .nm.wrap{white-space:normal}.mine-row .acts{display:flex;gap:6px}.fix{min-height:44px;padding:0 12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--text);font-size:14px;white-space:nowrap}.edit-box{padding:4px 0 14px}.edit-box .text-link{margin-top:10px}.mine-row .cancel{min-height:44px;padding:0 12px;border:1px solid var(--danger);border-radius:10px;background:#fff;color:var(--danger);font-size:14px;white-space:nowrap}
 .receipt.cancelled .management{color:var(--sub);text-decoration:line-through}
@@ -289,8 +289,8 @@ async function updateStatus(){
   status.className='status';status.textContent='今日 '+todayCount()+'件登録 ・ 保存済み ✓';
 }
 function resetItem(){_draftSeq++;_labelSeq++;state={stage:'label',photos:[],candidates:[],visibleCandidates:[],selected:null,selectedSet:false,condition:'',quantity:1,draft:{name:'',description:'',genre:''},size:'',memo:'',whiteout:false,draftBusy:false,draftDone:false,draftCandidate:null,nameEdited:false,aiUnavailable:false,label:'',error:'',managementNo:'',clientId:''};render();}
-function readyToSave(){return state.photos.length>=2&&state.draftDone&&!state.draftBusy&&state.selectedSet&&!!state.condition;}
-function waitingText(){if(state.draftBusy||!state.draftDone)return '商品名を確認しています';if(!state.selectedSet)return '商品を選んでください';if(!state.condition)return '商品の状態を選んでください';return '';}
+function readyToSave(){return state.photos.length>=2&&!state.photoLoading&&state.draftDone&&!state.draftBusy&&state.selectedSet&&!!state.condition;}
+function waitingText(){if(state.photoLoading)return '写真を読み込んでいます';if(state.draftBusy||!state.draftDone)return '商品名を確認しています';if(!state.selectedSet)return '商品を選んでください';if(!state.condition)return '商品の状態を選んでください';return '';}
 function primaryInfo(){return primaryState({stage:state.stage,photos:state.photos.length,ready:readyToSave(),waiting:waitingText(),workerValid:workerValid,editing:!!_edit,editBusy:!!(_edit&&_edit.busy)});}
 function candidateHtml(){
   if(!state.draftDone)return '';
@@ -548,9 +548,13 @@ function shootFrame(){
     if(state.photos.length>=_camTarget)closeShotCam();else renderCam();
   },'image/jpeg',.92);
 }
+// まとめて選んだ写真は、読み終えるまで登録を止める。途中で次の商品に移ったら残りは入れない
 async function addPicked(files){
   var list=Array.prototype.slice.call(files||[],0,pickRoom(state.photos.length,MAX_PHOTOS,files?files.length:0));
-  for(var i=0;i<list.length;i++)await addPhoto(list[i]);
+  if(!list.length)return;
+  var target=state;target.photoLoading=(target.photoLoading||0)+1;render();
+  try{for(var i=0;i<list.length&&state===target;i++)await addPhoto(list[i]);}
+  finally{target.photoLoading--;if(state===target)render();}
 }
 // 形を切り替えたら、撮り終えた写真も切り抜き直す。元の写真（orig）は残しておく
 async function setShape(shape){
@@ -561,8 +565,9 @@ async function setShape(shape){
 }
 async function addPhoto(file){
   if(!file||state.photos.length>=MAX_PHOTOS)return;
-  try{var image=await loadImageFile(file),orig=toJpeg(image,1600,.8),data=_shape==='1:1'?toJpeg(image,1600,.8,'1:1'):orig;state.photos.push({url:data,base64:data.split(',')[1],media_type:'image/jpeg',orig:orig});state.error='';render();if(state.photos.length===2&&!state.draftDone&&!state.draftBusy)createDraft();}
-  catch(error){state.error='写真を読み込めませんでした。もう一度撮ってください。';render();}
+  var target=state;
+  try{var image=await loadImageFile(file);if(state!==target||state.photos.length>=MAX_PHOTOS)return;var orig=toJpeg(image,1600,.8),data=_shape==='1:1'?toJpeg(image,1600,.8,'1:1'):orig;state.photos.push({url:data,base64:data.split(',')[1],media_type:'image/jpeg',orig:orig});state.error='';render();if(state.photos.length===2&&!state.draftDone&&!state.draftBusy)createDraft();}
+  catch(error){if(state!==target)return;state.error='写真を読み込めませんでした。もう一度撮ってください。';render();}
 }
 async function createDraft(opts){
   opts=opts||{};var redo=!!opts.redo;var seq=++_draftSeq;

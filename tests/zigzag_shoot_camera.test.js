@@ -27,3 +27,36 @@ test('カメラを起動できない端末は端末のカメラに戻す',functi
   assert.match(pick('shootFrame'),/_camFallback\)\{closeShotCam\(\);document\.getElementById\('photo-input'\)\.click\(\)/);
   assert.match(html,/visibilitychange',function\(\)\{if\(document\.hidden\)\{stopShotCam\(\)/);
 });
+// async 関数は中括弧を数えて抜き出す（中の文字列に中括弧は無い）
+function pickAsync(name){var start=html.indexOf('\nasync function '+name+'(');if(start<0)throw new Error('関数が見つかりません: '+name);var i=html.indexOf('{',start),depth=0;for(;i<html.length;i++){if(html[i]==='{')depth++;else if(html[i]==='}'){depth--;if(depth===0)break;}}return html.slice(start+1,i+1);}
+function photoApp(){
+  var body=pickAsync('addPicked')+'\n'+pickAsync('addPhoto')+'\n'+pick('pickRoom')+'\n'+pick('readyToSave')+'\n'+pick('waitingText');
+  return new Function('ctx',"var MAX_PHOTOS=8,_shape='4:3',state=ctx.state;function render(){ctx.renders++;}function createDraft(){}function loadImageFile(f){return f();}function toJpeg(){return 'data:image/jpeg;base64,AA';}"+body+"\nreturn {addPicked:addPicked,readyToSave:readyToSave,waitingText:waitingText,get state(){return state;},set state(v){state=v;}};");
+}
+function baseState(){return {photos:[],draftDone:true,draftBusy:false,selectedSet:true,condition:'new',error:''};}
+test('まとめて選んだ写真を読み終えるまで登録できない',async function(){
+  var ctx={state:baseState(),renders:0},app=photoApp()(ctx),release,gate=new Promise(function(r){release=r;});
+  var files=[function(){return {};},function(){return {};},function(){return gate.then(function(){return {};});}];
+  var done=app.addPicked(files);
+  await new Promise(function(r){setTimeout(r,0);});
+  assert.strictEqual(app.state.photos.length,2);
+  assert.strictEqual(app.readyToSave(),false);
+  assert.strictEqual(app.waitingText(),'写真を読み込んでいます');
+  release();await done;
+  assert.strictEqual(app.state.photos.length,3);
+  assert.strictEqual(app.readyToSave(),true);
+});
+test('読み込み中に次の商品へ移ったら、残りの写真は次の商品に入れない',async function(){
+  var ctx={state:baseState(),renders:0},app=photoApp()(ctx),release,gate=new Promise(function(r){release=r;});
+  var files=[function(){return {};},function(){return gate.then(function(){return {};});},function(){return {};}];
+  var done=app.addPicked(files);
+  await new Promise(function(r){setTimeout(r,0);});
+  var next=baseState();app.state=next;
+  release();await done;
+  assert.strictEqual(next.photos.length,0);
+  assert.ok(!next.photoLoading);
+});
+test('カメラの形の切り替えで、選んでいない側の文字を濃い色にする',function(){
+  assert.match(html,/\.shape button\{[^}]*background:#fff;color:#14231e/);
+  assert.match(html,/\.shape button\.on\{[^}]*color:#fff/);
+});
