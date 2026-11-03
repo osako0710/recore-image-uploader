@@ -55,7 +55,7 @@ textarea{min-height:90px;resize:vertical}.count{text-align:right;color:var(--sub
 .scan-layer{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;background:#0d1411;color:#fff;padding:calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom))}
 .scan-layer[hidden]{display:none}.scan-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.scan-head h2{margin:0;font-size:18px}.scan-head button{min-width:44px;min-height:44px;border:0;background:none;color:#fff;text-decoration:underline}
 #reader-wrap[hidden],#scan-tip[hidden]{display:none}#reader-wrap{position:relative;flex:1;min-height:160px;overflow:hidden;border-radius:14px;background:#000;margin-top:12px}#scan-video{display:block;width:100%;height:100%;object-fit:cover}.scan-guide{position:absolute;left:5%;right:5%;top:32%;height:36%;border:3px solid #fff;border-radius:10px;box-shadow:0 0 0 9999px rgba(0,0,0,.35)}.scan-layer p{text-align:center;font-size:14px}
-.scan-link{min-height:44px;border:0;background:none;color:#fff;text-decoration:underline;font-size:15px}.manual{display:grid;gap:8px}.manual[hidden]{display:none}.prefix{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.prefix button{min-height:44px;border:1px solid #6d7c76;border-radius:10px;background:transparent;color:#fff;font-size:15px}.prefix button.on{border:2px solid #fff;background:#2c4a41;font-weight:700}.manual input{display:block;width:100%;box-sizing:border-box;padding:12px;border:0;border-radius:10px;font-size:20px;letter-spacing:.05em}.manual-error{margin:0;color:#ffb4ac;font-size:14px}.manual-go{min-height:52px;border:0;border-radius:12px;background:#fff;color:#14231e;font-size:17px;font-weight:800}
+.scan-link{min-height:44px;border:0;background:none;color:#fff;text-decoration:underline;font-size:15px}.manual{display:grid;gap:8px}.manual[hidden]{display:none}.prefix{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.prefix button{min-height:44px;border:1px solid #6d7c76;border-radius:10px;background:transparent;color:#fff;font-size:15px}.prefix button.on{border:2px solid #fff;background:#2c4a41;font-weight:700}.manual input{display:block;width:100%;box-sizing:border-box;padding:12px;border:0;border-radius:10px;background:#fff;color:#14231e;-webkit-text-fill-color:#14231e;font-size:20px;letter-spacing:.05em}.manual-error{margin:0;color:#ffb4ac;font-size:14px}.manual-go{min-height:52px;border:0;border-radius:12px;background:#fff;color:#14231e;font-size:17px;font-weight:800}
 .label-no{margin:6px 0 2px;font-size:28px;font-weight:800;letter-spacing:.04em;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .scan-tools{position:absolute;top:10px;left:10px;right:10px;display:flex;gap:10px;align-items:center}.scan-tools[hidden]{display:none}.scan-tools button{width:48px;height:48px;border:0;border-radius:10px;background:rgba(0,0,0,.5);color:#fff;font-size:15px;font-weight:700}.scan-tools button.on{background:#f5c542;color:#222}.scan-tools input{flex:1;height:40px}
 .scan-shot{min-height:48px;border:1px solid #6d7c76;border-radius:12px;background:transparent;color:#fff;font-size:15px;font-weight:700}.scan-shot[hidden]{display:none}
@@ -196,7 +196,8 @@ function publicText(value){
     .replace(/[¥￥]\s*[\d,]+|[\d,]+\s*円/g,'')
     .replace(/\s{2,}/g,' ').trim();
 }
-function orderedCandidates(candidates,topIds,max){var ids=Array.isArray(topIds)?topIds:[];var picked=ids.map(function(id){return candidates.find(function(item){return item.candidate_id===id;});}).filter(Boolean);var picked2=picked.filter(function(item,i){return picked.indexOf(item)===i;});if(!picked2.length)return candidates.slice(0,max);return picked2.slice(0,max);}
+// AI が選んだ候補を先に並べ、袋に紐付く残りの候補もすべて後ろに出す
+function orderedCandidates(candidates,topIds){var ids=Array.isArray(topIds)?topIds:[];var picked=ids.map(function(id){return candidates.find(function(item){return item.candidate_id===id;});}).filter(Boolean);var picked2=picked.filter(function(item,i){return picked.indexOf(item)===i;});return picked2.concat(candidates.filter(function(item){return picked2.indexOf(item)<0;}));}
 function doneText(item){var done=Number(item&&item.done)||0,left=Number(item&&item.remaining)||0;if(done<=0)return '';if(left>0&&done>=left)return '残数ぶん登録済み';return '登録済み '+done+'点';}
 function candidateViewNames(candidates,max){return candidates.slice(0,max).map(function(item){return publicText(item.name);});}
 function dedupeQueue(items){
@@ -574,13 +575,12 @@ async function createDraft(opts){
     state.draft={name:publicText(value.name),description:publicText(value.description),genre:publicText(value.genre)};state.nameEdited=false;state.draftCandidate=value.candidate_id||null;
     if(redo){state.draftBusy=false;if(shouldRedoForPick(state.selected)){createDraft({redo:true});return;}render();return;}
     var chosen=state.candidates.find(function(item){return item.candidate_id===value.candidate_id;});
-    state.visibleCandidates=orderedCandidates(state.candidates,value.top_ids,3);
-    if(chosen&&!state.visibleCandidates.some(function(item){return item.candidate_id===chosen.candidate_id;}))state.visibleCandidates[Math.min(state.visibleCandidates.length,2)]=chosen;
+    state.visibleCandidates=orderedCandidates(state.candidates,value.top_ids);
     if(chosen&&Number(value.confidence)>=.8){state.selected=chosen.candidate_id;state.selectedSet=true;state.autoPicked=true;}
   }catch(error){
     if(seq!==_draftSeq)return;
     if(redo){state.draftBusy=false;state.error='商品名を作り直せませんでした。商品名の欄で直してください。';render();return;}
-    state.draft={name:'',description:'',genre:''};state.aiUnavailable=error.status===503;state.visibleCandidates=state.aiUnavailable?state.candidates.slice():state.candidates.slice(0,3);
+    state.draft={name:'',description:'',genre:''};state.aiUnavailable=error.status===503;state.visibleCandidates=state.candidates.slice();
     state.error=state.aiUnavailable?'商品名の自動作成を使えません。商品を選んで登録を続けてください。':'商品名を作れませんでした。商品を選んで登録を続けてください。';
   }
   state.draftBusy=false;state.draftDone=true;if(!state.candidates.length){state.selected=null;state.selectedSet=true;}render();
