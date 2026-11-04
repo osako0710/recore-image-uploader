@@ -21,7 +21,7 @@
 
 ## データ
 
-- `fj_listings`：Shops の FJ 出品の写し。列は product_id（主キー）、management_no（8桁、無ければ null）、fj_no、name、status、stock、synced_at。FJ 出品は出品名か説明に `FJ` と3桁以上の数字を含むものとする。
+- `fj_listings`：Shops の FJ 出品の写し。列は product_id（主キー）、management_no（8桁、無ければ null）、fj_no、name、status、stock、synced_at。FJ 出品は、出品名か説明に `FJ` と2桁以上の数字を含むもの、または SKU が8桁のものとする（古い出品は FJ 番号が無いか2桁のため）。
 - `fj_shelf_marks`：出品済みの商品に付けた棚番。列は mark_id、management_no、shelf、kind、product_id、worker_id、client_id（二重送信防止）、created_at。
 - `fj_shots.shelf`：未出品の商品を撮影したときの棚番。
 - 似た名前の検索は pg_trgm の類似度で行う関数 `fj_similar_listings(q, n)` にする。対象は management_no が null の出品だけ。
