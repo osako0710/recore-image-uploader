@@ -11,6 +11,10 @@ class T(unittest.TestCase):
                     "variants": [{"skuCode": "24130242", "stockQuantity": 1}]})
         self.assertEqual((r["management_no"], r["fj_no"], r["status"]), ("24130242", "FJ1234", "on_sale"))
         self.assertIsNone(to_row({"id": "b", "name": "バッグ", "description": "", "variants": []}))
+        r = to_row({"id": "d", "name": "原神 タペストリー", "description": "", "status": "OPENED",
+                    "variants": [{"skuCode": "23043853", "stockQuantity": 1}]})
+        self.assertEqual((r["management_no"], r["fj_no"], r["status"]), ("23043853", None, "on_sale"))
+        self.assertEqual(to_row({"id": "e", "name": "缶バッジ 【FJ12】", "variants": []})["fj_no"], "FJ12")
         r = to_row({"id": "c", "name": "FJ-555 靴", "status": "ON_SALE", "variants": [{"skuCode": "", "stockQuantity": 0}]})
         self.assertEqual((r["management_no"], r["status"], r["sku_kind"]), (None, "sold", "空"))
 
@@ -18,6 +22,7 @@ class T(unittest.TestCase):
         rows = [{"management_no": "1" * 8, "status": "on_sale", "sku_kind": "8桁"}] * 2
         self.assertEqual(summarize(2, rows)["duplicate_listed_codes"], 1)
         self.assertEqual(norm_status("SOLD_OUT", 0), "sold")
+        self.assertEqual(norm_status("UNOPENED", 1), "stopped")
 
     def test_with_shelf(self):
         self.assertEqual(with_shelf("管理 FJ1234\n本文", "A-12"), "管理 FJ1234 棚:A-12\n本文")

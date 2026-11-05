@@ -19,7 +19,7 @@ import re
 import sys
 import urllib.request
 
-FJ_RE = re.compile(r"FJ\s*-?\s*(\d{3,})", re.IGNORECASE)
+FJ_RE = re.compile(r"FJ\s*-?\s*(\d{2,})", re.IGNORECASE)
 CODE_RE = re.compile(r"^\d{8}$")
 BATCH = 500
 
@@ -42,7 +42,7 @@ def norm_status(status, stock):
     if s in ("on_sale", "opened", "open", "published", "active"):
         # 在庫が0なら売り切れとして扱う
         return "on_sale" if stock > 0 else "sold"
-    if s in ("stopped", "closed", "unpublished", "draft", "private"):
+    if s in ("stopped", "closed", "unpublished", "unopened", "draft", "private"):
         return "stopped"
     if s in ("sold_out", "sold", "soldout"):
         return "sold"
@@ -52,16 +52,17 @@ def norm_status(status, stock):
 def to_row(p):
     text = f"{p.get('name') or ''}\n{p.get('description') or ''}"
     m = FJ_RE.search(text)
-    if not m:
-        return None
     variants = p.get("variants") or []
     skus = [str(v.get("skuCode") or "").strip() for v in variants]
     code = next((s for s in skus if CODE_RE.match(s)), None)
+    # 古い出品は説明に FJ 番号が無いことがある。8桁の管理コードがあれば照合に入れる。
+    if not m and not code:
+        return None
     stock = sum(int(v.get("stockQuantity") or 0) for v in variants)
     return {
         "product_id": p["id"],
         "management_no": code,
-        "fj_no": "FJ" + m.group(1),
+        "fj_no": "FJ" + m.group(1) if m else None,
         "name": (p.get("name") or "")[:300],
         "status": norm_status(p.get("status"), stock),
         "stock": stock,
