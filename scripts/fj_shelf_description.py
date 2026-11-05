@@ -32,7 +32,7 @@ def with_shelf(description, shelf):
 # 出品名の【FJ0526】のような古い FJ 番号タグ（どこにあっても対象）
 NAME_FJ_TAG_RE = re.compile(r"[ 　]*【FJ\s*-?\s*\d{3,}】")
 # 前に入れた棚番タグ。末尾にある【1103A】の形（数字3桁以上＋英字1〜2字）だけを対象にし、【XL】【DVD】などの商品情報は残す
-NAME_SHELF_TAG_RE = re.compile(r"[ 　]*【\d{3,}[A-Z]{0,2}】[ 　]*$")
+NAME_SHELF_TAG_RE = re.compile(r"[ 　]*【\d{3,}[A-Z]{1,2}】[ 　]*$")
 
 
 def with_shelf_name(name, shelf, keep_fj=False):
