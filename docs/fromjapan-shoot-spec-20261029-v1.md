@@ -44,7 +44,7 @@ candidate_id, source_key（一意）, code（8桁）, product_name, remaining, s
 - Fromjapan から商品リストが来るか（来るなら列の対応を決めて fj_candidates に取り込む）
 - 作業者をジグザグと分けるか（分けるなら zz_workers に Fromjapan 用の行を足すだけで足りる）
 - ラベルの「#980662」（注文番号らしき番号）を控えるか。現状は使わない
-- 出品側の取り込み（fj_shots → ReCORE）の経路。ジグザグの zz_shots と同じ列構成にしてある
+- 出品側の取り込み（fj_shots → ReCORE）の経路。ジグザグの zz_shots と同じ列構成にしてある。取り込むときは出品名の末尾に ` 【<fj_shots.shelf>】` を付ける（Fromjapan の依頼、2026-11-05）
 
 ## 次にやること
 

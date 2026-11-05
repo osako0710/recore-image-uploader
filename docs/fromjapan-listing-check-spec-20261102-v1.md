@@ -38,6 +38,13 @@
 - `scripts/fj_shelf_description.py` を置く。fj_shelf_marks から出品ごとの最新の棚番を取り、説明欄の FJ 番号の横に `棚:<棚番>` を入れた新しい説明を CSV に出す（dry-run）。
 - Shops への書き込み（`--apply --confirm`）は大迫さんの承認後に作る。この PR では dry-run だけにする。
 
+## 出品名への棚番の追記（2026-11-05 追加）
+
+- Fromjapan の相沢さんから、棚番を出品名に入れてほしいと依頼があった（2026-11-05）。出品名にある【FJ0526】は以前の棚番だった。
+- `scripts/fj_shelf_description.py` は新しい出品名も CSV に出す（`new_name` 列）。出品名の末尾に ` 【<棚番>】` を付け、前の棚番タグと【FJ番号】タグは外す。
+- 説明欄に FJ 番号が無い出品は【FJ番号】タグを残す。出品照合が FJ 番号で出品を見つけられるようにするため。
+- これから出品する商品も、出品名の末尾に ` 【<棚番>】` を付ける。棚番は fj_shots.shelf を使う。
+
 ## 対象パス
 
 - recore-image-uploader: `supabase/functions/fromjapan-shoot/handler.ts`、`fromjapan_shoot_20261030_v2.html`、`tests/fromjapan_shoot_*`、`supabase/migrations/`、`scripts/`

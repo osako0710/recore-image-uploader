@@ -2,7 +2,7 @@ import sys, os, unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 import fj_sync_listings  # noqa: E402
 from fj_sync_listings import to_row, summarize, norm_status  # noqa: E402
-from fj_shelf_description import with_shelf  # noqa: E402
+from fj_shelf_description import with_shelf, with_shelf_name  # noqa: E402
 
 
 class T(unittest.TestCase):
@@ -23,6 +23,14 @@ class T(unittest.TestCase):
         self.assertEqual(with_shelf("管理 FJ1234\n本文", "A-12"), "管理 FJ1234 棚:A-12\n本文")
         self.assertEqual(with_shelf("FJ1234 棚:B-1\n本文", "A-12"), "FJ1234 棚:A-12\n本文")
         self.assertIsNone(with_shelf("番号なし", "A-1"))
+
+    def test_with_shelf_name(self):
+        self.assertEqual(with_shelf_name("原神 タペストリー 【FJ0526】", "1103A"), "原神 タペストリー 【1103A】")
+        self.assertEqual(with_shelf_name("原神 タペストリー 【1103A】", "1104B"), "原神 タペストリー 【1104B】")
+        self.assertEqual(with_shelf_name("OREA O1 Brewer シルバー", "1103A"), "OREA O1 Brewer シルバー 【1103A】")
+        self.assertEqual(with_shelf_name("バッグ 【美品】", "A-12"), "バッグ 【美品】 【A-12】")
+        self.assertEqual(with_shelf_name("靴 【FJ0526】", "1103A", keep_fj=True), "靴 【FJ0526】 【1103A】")
+        self.assertEqual(with_shelf_name("靴 【FJ0526】 【1103A】", "1103A", keep_fj=True), "靴 【FJ0526】 【1103A】")
 
     def test_empty_sync_finishes(self):
         import tempfile, json as j
