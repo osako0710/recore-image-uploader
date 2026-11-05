@@ -35,6 +35,11 @@ class T(unittest.TestCase):
         self.assertEqual(with_shelf_name("【DVD】 映画 【FJ0526】", "1103A"), "【DVD】 映画 【1103A】")
         self.assertEqual(with_shelf_name("【2024】 カレンダー", "1103A"), "【2024】 カレンダー 【1103A】")
         self.assertEqual(with_shelf_name("カレンダー 【2024】", "1103A"), "カレンダー 【2024】 【1103A】")
+        # 撮影画面が受け付ける他の棚番の形も、再実行で二重にならない
+        self.assertEqual(with_shelf_name("バッグ 【A-12】", "A-12"), "バッグ 【A-12】")
+        self.assertEqual(with_shelf_name("バッグ 【B3】", "A-12"), "バッグ 【A-12】")
+        self.assertEqual(with_shelf_name("本 【1103】", "1103"), "本 【1103】")
+        self.assertEqual(with_shelf_name("シャツ 【XL】", "A-12"), "シャツ 【XL】 【A-12】")
 
     def test_empty_sync_finishes(self):
         import tempfile, json as j

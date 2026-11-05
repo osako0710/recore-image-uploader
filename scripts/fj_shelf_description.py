@@ -31,8 +31,8 @@ def with_shelf(description, shelf):
 
 # 出品名の【FJ0526】のような古い FJ 番号タグ（どこにあっても対象）
 NAME_FJ_TAG_RE = re.compile(r"[ 　]*【FJ\s*-?\s*\d{3,}】")
-# 前に入れた棚番タグ。末尾にある【1103A】の形（数字3桁以上＋英字1〜2字）だけを対象にし、【XL】【DVD】などの商品情報は残す
-NAME_SHELF_TAG_RE = re.compile(r"[ 　]*【\d{3,}[A-Z]{1,2}】[ 　]*$")
+# 前に入れた棚番タグ。末尾にある、英字と数字の両方を含む英数字（ハイフン可）の形（【1103A】【A-12】【B3】）だけを対象にし、【XL】【DVD】【2024】などの商品情報と【FJ番号】は残す
+NAME_SHELF_TAG_RE = re.compile(r"[ 　]*【(?!FJ\s*-?\s*\d)(?=[^】]*\d)(?=[^】]*[A-Z])[A-Z0-9][A-Z0-9-]{0,19}】[ 　]*$")
 
 
 def with_shelf_name(name, shelf, keep_fj=False):
@@ -44,6 +44,10 @@ def with_shelf_name(name, shelf, keep_fj=False):
     if not keep_fj:
         base = NAME_FJ_TAG_RE.sub("", base).rstrip()
     base = NAME_SHELF_TAG_RE.sub("", base).rstrip()
+    # 今回の棚番と同じタグが末尾にあれば外す（数字だけの棚番でも二重にしない）
+    same = f"【{shelf}】"
+    if base.endswith(same):
+        base = base[: -len(same)].rstrip()
     if not keep_fj:
         base = NAME_FJ_TAG_RE.sub("", base).rstrip()
     return f"{base} 【{shelf}】"
