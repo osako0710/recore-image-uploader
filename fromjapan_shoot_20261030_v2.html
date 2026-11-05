@@ -207,8 +207,8 @@ async function updateStatus(){
   status.className='status';status.textContent='今日 '+todayCount()+'件登録 ・ 保存済み ✓';
 }
 function resetItem(){_draftSeq++;_codeSeq++;state=newState();render();focusCode();}
-function readyToSave(){return state.photos.length>=2&&state.draftDone&&!state.draftBusy&&state.selectedSet&&!!state.condition&&!!normShelf(state.shelf)&&!state.registered;}
-function waitingText(){if(state.registered)return 'この番号は登録済みです';if(state.draftBusy||!state.draftDone)return '商品名を確認しています';if(!state.selectedSet)return '商品を選んでください';if(!state.condition)return '商品の状態を選んでください';if(!normShelf(state.shelf))return '棚番を入力してください';return '';}
+function readyToSave(){return !_reshaping&&state.photos.length>=2&&state.draftDone&&!state.draftBusy&&state.selectedSet&&!!state.condition&&!!normShelf(state.shelf)&&!state.registered;}
+function waitingText(){if(state.registered)return 'この番号は登録済みです';if(_reshaping)return '写真の形を変えています';if(state.draftBusy||!state.draftDone)return '商品名を確認しています';if(!state.selectedSet)return '商品を選んでください';if(!state.condition)return '商品の状態を選んでください';if(!normShelf(state.shelf))return '棚番を入力してください';return '';}
 function primaryInfo(){return primaryState({stage:state.stage,photos:state.photos.length,ready:readyToSave(),waiting:waitingText(),workerValid:workerValid,codeReady:!!normCode(state.codeInput),listingState:state.listing&&state.listing.state,shelfReady:!!normShelf(state.shelf),busy:state.markBusy});}
 function candidateHtml(){
   if(!state.draftDone||!state.candidates.length)return '';
@@ -298,11 +298,13 @@ function normalShape(value){return value==='1:1'?'1:1':'4:3';}
 function cropRect(width,height,shape){if(normalShape(shape)!=='1:1')return {x:0,y:0,w:width,h:height};var side=Math.min(width,height);return {x:Math.floor((width-side)/2),y:Math.floor((height-side)/2),w:side,h:side};}
 function toJpeg(image,max,quality,shape){var r=cropRect(image.width,image.height,shape),scale=Math.min(1,max/Math.max(r.w,r.h)),width=Math.max(1,Math.round(r.w*scale)),height=Math.max(1,Math.round(r.h*scale)),canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;canvas.getContext('2d').drawImage(image,r.x,r.y,r.w,r.h,0,0,width,height);return canvas.toDataURL('image/jpeg',quality);}
 // 形を切り替えたら、撮り終えた写真も切り抜き直す。元の写真（orig）は残しておく
+var _reshaping=0;
 async function setShape(shape){
-  shape=normalShape(shape);if(shape===_shape)return;_shape=shape;safeStorageSet(SHAPE_KEY,shape);render();
-  var photos=state.photos.slice();
-  for(var i=0;i<photos.length;i++){var photo=photos[i];if(!photo.orig)continue;try{var data=shape==='1:1'?toJpeg(await loadImageUrl(photo.orig),1600,.8,'1:1'):photo.orig;if(_shape!==shape)return;photo.url=data;photo.base64=data.split(',')[1];}catch(error){}}
-  render();
+  shape=normalShape(shape);if(shape===_shape)return;_shape=shape;safeStorageSet(SHAPE_KEY,shape);_reshaping++;render();
+  try{
+    var photos=state.photos.slice();
+    for(var i=0;i<photos.length;i++){var photo=photos[i];if(!photo.orig)continue;try{var data=shape==='1:1'?toJpeg(await loadImageUrl(photo.orig),1600,.8,'1:1'):photo.orig;if(_shape!==shape)return;photo.url=data;photo.base64=data.split(',')[1];}catch(error){}}
+  }finally{_reshaping--;render();}
 }
 async function addPhoto(file){
   if(!file||state.photos.length>=MAX_PHOTOS)return;
