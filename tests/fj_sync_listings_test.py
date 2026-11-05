@@ -31,6 +31,10 @@ class T(unittest.TestCase):
         self.assertEqual(with_shelf_name("バッグ 【美品】", "A-12"), "バッグ 【美品】 【A-12】")
         self.assertEqual(with_shelf_name("靴 【FJ0526】", "1103A", keep_fj=True), "靴 【FJ0526】 【1103A】")
         self.assertEqual(with_shelf_name("靴 【FJ0526】 【1103A】", "1103A", keep_fj=True), "靴 【FJ0526】 【1103A】")
+        self.assertEqual(with_shelf_name("Tシャツ 【XL】 【FJ0526】", "1103A"), "Tシャツ 【XL】 【1103A】")
+        self.assertEqual(with_shelf_name("【DVD】 映画 【FJ0526】", "1103A"), "【DVD】 映画 【1103A】")
+        self.assertEqual(with_shelf_name("【2024】 カレンダー", "1103A"), "【2024】 カレンダー 【1103A】")
+        self.assertEqual(with_shelf_name("カレンダー 【2024】", "1103A"), "カレンダー 【2024】 【1103A】")
 
     def test_empty_sync_finishes(self):
         import tempfile, json as j

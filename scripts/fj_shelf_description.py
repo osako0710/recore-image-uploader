@@ -29,23 +29,23 @@ def with_shelf(description, shelf):
     return f"{head} 棚:{shelf}{tail}"
 
 
-# 出品名の末尾の棚番タグ。【FJ0526】のような古い FJ 番号タグと、前に入れた【1103A】のような棚番を対象にする
-NAME_TAG_RE = re.compile(r"[ 　]*【(?:FJ\s*-?\s*\d{3,}|[0-9A-Z][0-9A-Z-]{0,19})】")
+# 出品名の【FJ0526】のような古い FJ 番号タグ（どこにあっても対象）
+NAME_FJ_TAG_RE = re.compile(r"[ 　]*【FJ\s*-?\s*\d{3,}】")
+# 前に入れた棚番タグ。末尾にある【1103A】の形（数字3桁以上＋英字1〜2字）だけを対象にし、【XL】【DVD】などの商品情報は残す
+NAME_SHELF_TAG_RE = re.compile(r"[ 　]*【\d{3,}[A-Z]{0,2}】[ 　]*$")
 
 
 def with_shelf_name(name, shelf, keep_fj=False):
-    """出品名の末尾に「 【<棚番】」を付ける。前の棚番タグと【FJ番号】タグは外す。
+    """出品名の末尾に「 【<棚番>】」を付ける。【FJ番号】タグと、末尾の前の棚番タグは外す。
 
     keep_fj=True のとき（説明欄に FJ 番号が無いとき）は【FJ番号】タグを残す。出品照合が FJ 番号で出品を見つけられるようにするため。
     """
-    name = name or ""
-
-    def drop(m):
-        if keep_fj and FJ_RE.search(m.group(0)):
-            return m.group(0)
-        return ""
-
-    base = NAME_TAG_RE.sub(drop, name).rstrip()
+    base = (name or "").rstrip()
+    if not keep_fj:
+        base = NAME_FJ_TAG_RE.sub("", base).rstrip()
+    base = NAME_SHELF_TAG_RE.sub("", base).rstrip()
+    if not keep_fj:
+        base = NAME_FJ_TAG_RE.sub("", base).rstrip()
     return f"{base} 【{shelf}】"
 
 
