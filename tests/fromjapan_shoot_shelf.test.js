@@ -19,3 +19,7 @@ test('出品中の商品は棚番が入るまで登録できず、売れた商�
   assert.deepStrictEqual(app.primaryState({stage:'listed',listingState:'listed_by_name',shelfReady:true,busy:true}),{action:'shelf',label:'登録しています',enabled:false});
   assert.deepStrictEqual(app.primaryState({stage:'listed',listingState:'sold'}),{action:'shelf',label:'担当者に渡す',enabled:true});
 });
+test('非公開だけの出品は見出しを「非公開で登録済みの商品です」にし、照合結果をそのまま持つ',function(){
+  assert.ok(html.indexOf("(item.private?'非公開で登録済みの商品です':'出品中の商品です')")>0);
+  assert.ok(html.indexOf('state.listing=value.listing||null;')>0);
+});
