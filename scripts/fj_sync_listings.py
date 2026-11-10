@@ -21,6 +21,7 @@ import urllib.request
 
 FJ_RE = re.compile(r"FJ\s*-?\s*(\d{3,})", re.IGNORECASE)
 CODE_RE = re.compile(r"^\d{8}$")
+FJ_CODE_RE = re.compile(r"^2\d{7}$")
 BATCH = 500
 
 
@@ -53,16 +54,17 @@ def norm_status(status, stock):
 def to_row(p):
     text = f"{p.get('name') or ''}\n{p.get('description') or ''}"
     m = FJ_RE.search(text)
-    if not m:
-        return None
     variants = p.get("variants") or []
     skus = [str(v.get("skuCode") or "").strip() for v in variants]
     code = next((s for s in skus if CODE_RE.match(s)), None)
+    # FJ 番号が無くても、SKU が2で始まる8桁なら FJ の出品として扱う（売れた出品の多くは FJ 番号を持たない）
+    if not m and not (code and FJ_CODE_RE.match(code)):
+        return None
     stock = sum(int(v.get("stockQuantity") or 0) for v in variants)
     return {
         "product_id": p["id"],
         "management_no": code,
-        "fj_no": "FJ" + m.group(1),
+        "fj_no": "FJ" + m.group(1) if m else None,
         "name": (p.get("name") or "")[:300],
         "status": norm_status(p.get("status"), stock),
         "stock": stock,
