@@ -1,7 +1,7 @@
 // fromjapan-shoot API の保存の流れを、偽の DB と偽の GitHub で確かめる。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { handle, STALE_RESERVATION_MS } from '../supabase/functions/fromjapan-shoot/handler.ts';
+import { handle, judgeListing, STALE_RESERVATION_MS } from '../supabase/functions/fromjapan-shoot/handler.ts';
 
 const ORIGIN = 'https://osako0710.github.io';
 const NOW = new Date('2026-10-30T03:00:00Z');
@@ -237,4 +237,15 @@ test('撮影の保存で棚番を送ると fj_shots.shelf に正規化して入�
   }), w.deps);
   assert.equal(res.status, 200);
   assert.equal(w.shots[0].shelf, 'C-3');
+});
+
+test('非公開で登録しただけの出品は、登録済み（非公開）として判定する', () => {
+  const row = (status, id) => ({ product_id: id, fj_no: 'FJ1', name: '財布', status });
+  const hidden = judgeListing([row('stopped', 'a')]);
+  assert.equal(hidden.state, 'listed');
+  assert.equal(hidden.private, true);
+  const open = judgeListing([row('stopped', 'a'), row('on_sale', 'b')]);
+  assert.equal(open.private, false);
+  assert.equal(judgeListing([]).private, false);
+  assert.equal(judgeListing([row('sold', 'c')]).private, false);
 });

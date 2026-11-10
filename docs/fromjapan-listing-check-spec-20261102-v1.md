@@ -45,6 +45,13 @@
 - 説明欄に FJ 番号が無い出品は【FJ番号】タグを残す。出品照合が FJ 番号で出品を見つけられるようにするため。
 - これから出品する商品も、出品名の末尾に ` 【<棚番>】` を付ける。棚番は fj_shots.shelf を使う。
 
+## 非公開で先に登録する運用（2026-11-10 追加）
+
+- 玉城さんの提案を大迫さんが承認した（2026-11-10、#倉庫関連）。FJ のリストの全商品を Shops に非公開で先に登録し、現物を確かめた商品から棚番を入れて公開する。非公開のまま残る商品は現物を確認できなかった商品として扱う。リストに無い商品は管理番号 FJN で登録する。
+- Shops の非公開の出品は status が UNOPENED になる。同期は UNOPENED を stopped（登録済み・非公開）として fj_listings に書く。
+- 撮影画面は stopped も出品済みとして扱い、撮影させずに棚番の入力へ進める。on_sale が無く stopped だけのときは見出しを「非公開で登録済みの商品です」にする（判定の戻り値 `private`）。
+- 全出品の取得は `scripts/fj_fetch_shops_products.py out.jsonl` で行い、`scripts/fj_sync_listings.py out.jsonl --apply` で写す。どちらも社内 PC へのトンネルが要る。
+
 ## 対象パス
 
 - recore-image-uploader: `supabase/functions/fromjapan-shoot/handler.ts`、`fromjapan_shoot_20261030_v2.html`、`tests/fromjapan_shoot_*`、`supabase/migrations/`、`scripts/`

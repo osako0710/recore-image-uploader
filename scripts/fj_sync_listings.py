@@ -42,7 +42,8 @@ def norm_status(status, stock):
     if s in ("on_sale", "opened", "open", "published", "active"):
         # 在庫が0なら売り切れとして扱う
         return "on_sale" if stock > 0 else "sold"
-    if s in ("stopped", "closed", "unpublished", "draft", "private"):
+    # UNOPENED は非公開で登録した出品。公開停止と同じく「登録済み・非公開」として扱う
+    if s in ("stopped", "closed", "unpublished", "draft", "private", "unopened"):
         return "stopped"
     if s in ("sold_out", "sold", "soldout"):
         return "sold"
