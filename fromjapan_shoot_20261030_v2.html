@@ -160,7 +160,7 @@ function mockCandidates(){return [
 async function request(path,options){
   if(mock){
     await new Promise(function(resolve){setTimeout(resolve,180);});
-    if(!options){var q=new URLSearchParams(path.replace(/^\?/,''));var code=q.get('code')||'';var listing=code==='11111111'?{state:'listed',product_id:'m1',fj_no:'FJ1234',name:'ネイビーのショルダーバッグ',listed_count:1}:code==='22222222'?{state:'sold',product_id:'m2',fj_no:'FJ1235',name:'白いスニーカー',listed_count:0}:{state:'none',product_id:null,fj_no:null,name:null,listed_count:0};return {code:code,listing:listing,candidates:code==='00000000'?[]:mockCandidates(),registered:code==='99999999'?{management_no:code,created_at:'2026-10-29T00:00:00Z'}:null};}
+    if(!options){var q=new URLSearchParams(path.replace(/^\?/,''));var code=q.get('code')||'';var listing=code==='11111111'?{state:'listed',product_id:'m1',fj_no:'FJ1234',name:'ネイビーのショルダーバッグ',listed_count:1}:code==='22222222'?{state:'sold',product_id:'m2',fj_no:'FJ1235',name:'白いスニーカー',listed_count:0}:code==='33333333'?{state:'listed',product_id:'m3',fj_no:'FJ1236',name:'黒い革の財布',listed_count:1,private:true}:{state:'none',product_id:null,fj_no:null,name:null,listed_count:0};return {code:code,listing:listing,candidates:code==='00000000'?[]:mockCandidates(),registered:code==='99999999'?{management_no:code,created_at:'2026-10-29T00:00:00Z'}:null};}
     var body=JSON.parse(options.body||'{}');
     if(body.action==='draft'){
       if(params.get('ai')==='0'){var unavailable=new Error('ai_unavailable');unavailable.status=503;throw unavailable;}
@@ -249,7 +249,7 @@ function render(){
     if(state.stage==='listed'){
       var item=state.listing||{};
       if(item.state==='sold'){html+='<section class="card"><div class="step"><span>2</span>出品の確認</div><h1>売れた商品です</h1><p class="hint">'+esc([item.fj_no,item.name].filter(Boolean).join(' '))+'</p><p>棚に置かずに担当者へ渡してください。</p>';}
-      else{html+='<section class="card"><div class="step"><span>2</span>出品の確認</div><h1>出品中の商品です</h1><p class="hint">'+esc([item.fj_no,item.name].filter(Boolean).join(' '))+'</p><p>撮影はいりません。置く棚の番号を入れてください。</p>'+shelfInputHtml();}
+      else{html+='<section class="card"><div class="step"><span>2</span>出品の確認</div><h1>'+(item.private?'非公開で登録済みの商品です':'出品中の商品です')+'</h1><p class="hint">'+esc([item.fj_no,item.name].filter(Boolean).join(' '))+'</p><p>撮影はいりません。置く棚の番号を入れてください。</p>'+shelfInputHtml();}
       if(state.error)html+='<p class="error">'+esc(state.error)+'</p>';
       html+='</section>';
     }

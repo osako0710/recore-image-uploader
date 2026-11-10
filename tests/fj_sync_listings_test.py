@@ -18,6 +18,8 @@ class T(unittest.TestCase):
         rows = [{"management_no": "1" * 8, "status": "on_sale", "sku_kind": "8桁"}] * 2
         self.assertEqual(summarize(2, rows)["duplicate_listed_codes"], 1)
         self.assertEqual(norm_status("SOLD_OUT", 0), "sold")
+        self.assertEqual(norm_status("UNOPENED", 1), "stopped")
+        self.assertEqual(norm_status("OPENED", 1), "on_sale")
 
     def test_with_shelf(self):
         self.assertEqual(with_shelf("管理 FJ1234\n本文", "A-12"), "管理 FJ1234 棚:A-12\n本文")

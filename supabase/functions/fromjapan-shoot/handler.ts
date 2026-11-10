@@ -260,7 +260,7 @@ export function normalizeShelf(value: unknown): string {
 }
 
 export type ListingState = 'listed' | 'sold' | 'none';
-export type Listing = { state: ListingState; product_id: string | null; fj_no: string | null; name: string | null; listed_count: number };
+export type Listing = { state: ListingState; product_id: string | null; fj_no: string | null; name: string | null; listed_count: number; private: boolean };
 type ListingRow = { product_id: string; fj_no: string | null; name: string; status: string };
 
 // Shops の出品の状態。出品中と出品停止は「出品済み」、売り切れだけなら「売れた」、無ければ「出品なし」。
@@ -276,6 +276,8 @@ export function judgeListing(rows: ListingRow[]): Listing {
     fj_no: pick ? pick.fj_no ?? null : null,
     name: pick ? pick.name : null,
     listed_count: listed.length,
+    // 登録済みでも公開中の出品が無い（非公開で登録しただけ、または公開停止）
+    private: listed.length > 0 && !listed.some((row) => row.status === 'on_sale'),
   };
 }
 
