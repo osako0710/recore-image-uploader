@@ -19,7 +19,7 @@ import re
 import sys
 import urllib.request
 
-FJ_RE = re.compile(r"FJ\s*-?\s*(\d{3,})", re.IGNORECASE)
+FJ_RE = re.compile(r"FJ\s*-?\s*(\d{2,})", re.IGNORECASE)
 CODE_RE = re.compile(r"^\d{8}$")
 FJ_CODE_RE = re.compile(r"^2\d{7}$")
 BATCH = 500
@@ -58,6 +58,7 @@ def to_row(p):
     skus = [str(v.get("skuCode") or "").strip() for v in variants]
     code = next((s for s in skus if CODE_RE.match(s)), None)
     # FJ 番号が無くても、SKU が2で始まる8桁なら FJ の出品として扱う（売れた出品の多くは FJ 番号を持たない）
+    # 画面確認対象の 8 桁 SKU（例: 23043853）は 2 始まりなのでこの条件に入る。
     if not m and not (code and FJ_CODE_RE.match(code)):
         return None
     stock = sum(int(v.get("stockQuantity") or 0) for v in variants)
