@@ -38,6 +38,22 @@
 - `scripts/fj_shelf_description.py` を置く。fj_shelf_marks から出品ごとの最新の棚番を取り、説明欄の FJ 番号の横に `棚:<棚番>` を入れた新しい説明を CSV に出す（dry-run）。
 - Shops への書き込み（`--apply --confirm`）は大迫さんの承認後に作る。この PR では dry-run だけにする。
 
+## 出品名への棚番の追記（2026-11-05 追加）
+
+- Fromjapan の相沢さんから、棚番を出品名に入れてほしいと依頼があった（2026-11-05）。出品名にある【FJ0526】は以前の棚番だった。
+- `scripts/fj_shelf_description.py` は新しい出品名も CSV に出す（`new_name` 列）。出品名の末尾に ` 【<棚番>】` を付け、前の棚番タグと【FJ番号】タグは外す。
+- 説明欄に FJ 番号が無い出品は【FJ番号】タグを残す。出品照合が FJ 番号で出品を見つけられるようにするため。
+- これから出品する商品も、出品名の末尾に ` 【<棚番>】` を付ける。棚番は fj_shots.shelf を使う。
+
+## 非公開で先に登録する運用（2026-11-10 追加）
+
+- 玉城さんの提案を大迫さんが承認した（2026-11-10、#倉庫関連）。FJ のリストの全商品を Shops に非公開で先に登録し、現物を確かめた商品から棚番を入れて公開する。非公開のまま残る商品は現物を確認できなかった商品として扱う。リストに無い商品は管理番号 FJN で登録する。
+- Shops の非公開の出品は status が UNOPENED になる。同期は UNOPENED を stopped（登録済み・非公開）として fj_listings に書く。
+- 撮影画面は stopped も出品済みとして扱い、撮影させずに棚番の入力へ進める。on_sale が無く stopped だけのときは見出しを「非公開で登録済みの商品です」にする（判定の戻り値 `private`）。
+- 出品の取得は `scripts/fj_fetch_shops_products.py out.jsonl` で行い、`scripts/fj_sync_listings.py out.jsonl --apply` で写す。どちらも社内 PC へのトンネルが要る。
+- 取得は全件（10万件超）を取らない。FJ の出品は SKU が2で始まる8桁か、入荷日形の FJ 番号（FJ0526 など）を持つものとし、新しい順に取って候補が15,000件続けて出なければ止める。2026-11-10 の手元データでは約6万件で止まり、候補2,291件をすべて拾えた。並びは出品日の順ではないので、日付では止めない。
+- 売れた出品の多くは FJ 番号を持たないので、同期は SKU が2始まり8桁の出品も写す。同期の最後に今回出てこなかった行を消すが、売れた行は消さない（`20261110_fj_sync_keep_sold.sql`）。「売れた出品だけがある」の判定に使うため。
+
 ## 対象パス
 
 - recore-image-uploader: `supabase/functions/fromjapan-shoot/handler.ts`、`fromjapan_shoot_20261030_v2.html`、`tests/fromjapan_shoot_*`、`supabase/migrations/`、`scripts/`
