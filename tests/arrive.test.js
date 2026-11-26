@@ -174,6 +174,28 @@ test('1) photo_limit is not retried and clears the photo confirmation', async ()
   assert.equal(api.retryable(err(429, 'rate_limited')), true);
 });
 
+test('1) replay keeps a chosen damage report and keeps arrivals rejected with 409', async () => {
+  const h = harness(
+    ['safeStorageGet', 'safeStorageSet', 'pendingLoad', 'pendingSave', 'pendingDone', 'addPending', 'removePending', 'pendingFromReply', 'dedupeQueue', 'flushQueueList', 'queueId', 'flushQueue', 'retryable'],
+    `var localStorage=this.ls;var PENDING_KEY='k';var _flushing=false,_retryStep=0,_retryTimer=0,workerValid=true;
+     var navigator={onLine:true};var deleted=[];var mode={v:'ok'};
+     var rows=[{qid:'arrive:r1',action:'arrive',client_id:'r1',code:'PK7'}];
+     async function queueAll(){return rows;} async function queueDelete(q){deleted.push(q);} async function queueCount(){return 0;}
+     async function request(b){if(mode.v==='409'){var e=new Error('no_lot');e.status=409;throw e;}return {result:'not_listed'};}
+     function scheduleRetry(){} async function refreshStatus(){} async function updateStatus(){}`,
+    '{flushQueue,pendingLoad,pendingSave,deleted,mode}'
+  );
+  const api = h.call({ ls: fakeStorage() });
+  api.mode.v = '409';
+  await api.flushQueue();
+  assert.deepEqual(api.deleted, []);
+  api.mode.v = 'ok';
+  api.pendingSave([{ kind: 'photo', client_id: 'r1', issue: true, code: 'PK7' }]);
+  await api.flushQueue();
+  assert.deepEqual(api.deleted, ['arrive:r1']);
+  assert.equal(api.pendingLoad()[0].issue, true);
+});
+
 test('1) withCode names the parcel; mock mode uses its own storage', () => {
   const { withCode } = harness(['withCode'], '', '{withCode}')();
   assert.equal(withCode('写真を撮ってください', 'PK9'), '番号 PK9 の荷物です。写真を撮ってください');

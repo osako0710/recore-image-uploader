@@ -147,7 +147,12 @@ function pendingFromReply(row,value){
 }
 // 確認を再開するとき、どの荷物かを番号で示す
 function withCode(text,code){return code?'番号 '+code+' の荷物です。'+text:text;}
-function addPending(list,rec){return removePending(list,rec.client_id,rec.kind).concat([rec]);}
+// 作業者が「破れ・中身が違う」を選んだ写真の確認は、送り直した答えで上書きしない
+function addPending(list,rec){
+  var old=list.find(function(r){return r&&r.client_id===rec.client_id&&r.kind===rec.kind;});
+  if(old&&rec.kind==='photo'&&old.issue&&!rec.issue)rec=Object.assign({},rec,{issue:true});
+  return removePending(list,rec.client_id,rec.kind).concat([rec]);
+}
 function removePending(list,clientId,kind){return list.filter(function(r){return !(r&&r.client_id===clientId&&r.kind===kind);});}
 function fmt(n){return Number(n||0).toLocaleString('en-US');}
 function queueId(body){return body.action+(body.issue?'!':'')+':'+body.client_id;}
@@ -246,6 +251,8 @@ async function flushQueue(){
         // 権限が無くなったときは消さずに止め、使えるようになってから送り直す
         if(error.status===403){workerValid=false;throw error;}
         if(retryable(error))throw error;
+        // 今日の荷物がまだ登録されていない（no_lot）・写真の同時保存（photo_conflict）は、あとで通るので消さずに残す
+        if(error.status===409)throw error;
         // 写真がもう上限まである荷物は、撮り直しを求めない
         if(error.message==='photo_limit')pendingDone(row.client_id,'photo');
       }
