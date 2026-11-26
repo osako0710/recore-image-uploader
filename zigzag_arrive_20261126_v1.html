@@ -65,7 +65,7 @@ details{margin-top:18px;border-top:3px solid var(--line);padding-top:6px}summary
   </section>
   <details id="more"><summary>⋯</summary>
     <button id="issue-btn" class="menu-btn" type="button" disabled>破れ・中身が違う（写真を撮る）</button>
-    <button id="close-btn" class="menu-btn" type="button">この回の確認を終える</button>
+    <button id="close-btn" class="menu-btn" type="button" hidden>この回の確認を終える</button>
   </details>
 </main>
 <input id="photo-input" class="sr-only" type="file" accept="image/*" capture="environment">
@@ -180,7 +180,7 @@ function mockItems(code){
 async function request(body){
   if(mock){
     await new Promise(function(resolve){setTimeout(resolve,150);});
-    if(body.action==='arrive_status')return {lot:{collected_on:'2026-11-25',status:'checking'},total:5,arrived:Object.keys(_mockArrived).length};
+    if(body.action==='arrive_status')return {lot:{collected_on:'2026-11-25',status:'checking'},total:5,arrived:Object.keys(_mockArrived).length,can_close:true};
     if(body.action==='arrive'){
       var items=mockItems(body.code);
       if(!items)return {client_id:body.client_id,result:'not_listed',need_count:false};
@@ -256,7 +256,7 @@ async function updateStatus(){
 }
 async function refreshStatus(){
   if(!workerValid)return;
-  try{var v=await request({action:'arrive_status',w:worker});view.lot=v.lot||null;view.total=Number(v.total)||0;view.arrived=Number(v.arrived)||0;view.loaded=true;}
+  try{var v=await request({action:'arrive_status',w:worker});view.lot=v.lot||null;view.total=Number(v.total)||0;view.arrived=Number(v.arrived)||0;view.canClose=v.can_close===true;view.loaded=true;}
   catch(error){if(error.status===403){workerValid=false;updateStatus();}if(error.status===409)view.lot=null;}
   render();
 }
@@ -318,7 +318,8 @@ function render(){
   }else{shots.hidden=true;shots.innerHTML='';}
   document.getElementById('manual-go').disabled=isBusy(view);
   document.getElementById('issue-btn').disabled=!(view.last&&view.last.client_id)||!workerValid;
-  document.getElementById('close-btn').disabled=!workerValid||!lot||lot.status==='closed';
+  var closeBtn=document.getElementById('close-btn');closeBtn.hidden=!view.canClose;
+  closeBtn.disabled=!workerValid||!lot||lot.status==='closed';
   paintBand();
 }
 
@@ -402,7 +403,7 @@ async function closeLot(){
   document.getElementById('more').open=false;
   if(!window.confirm('この回の確認を終えます。よろしいですか？'))return;
   try{var v=await request({action:'arrive_close',w:worker});setBand('ok',v&&v.closed?'確認を終えました':'確認を終える処理を受け付けました');}
-  catch(error){setBand('error',error.status===403?BAD_URL:'終えられませんでした。電波を確かめてもう一度お試しください');}
+  catch(error){setBand('error',error.status===403?(error.message==='close_forbidden'?'この URL では確認を終えられません。管理者に伝えてください':BAD_URL):'終えられませんでした。電波を確かめてもう一度お試しください');}
   await refreshStatus();
 }
 
