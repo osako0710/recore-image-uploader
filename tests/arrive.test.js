@@ -192,7 +192,27 @@ test('3) updateStatus shows the bad-URL text once workerValid turns false', asyn
   await h();
   assert.equal(el.className, 'status bad');
   assert.match(el.textContent, /この URL は使えません/);
-  assert.ok(/updateStatus\(\);\}\s*if\(error\.status===409\)/.test(html), 'refreshStatus calls updateStatus on 403');
+  assert.ok(/error\.status===403\)\{workerValid=false;updateStatus\(\);\}/.test(html), 'refreshStatus calls updateStatus on 403');
+});
+
+test('refreshStatus: a transient failure schedules a bounded retry', async () => {
+  const timers = [];
+  const h = new Function('timers', `
+    var workerValid=true,worker='W',view={},calls=0;
+    function request(){calls++;return Promise.reject({status:0});}
+    function render(){} function updateStatus(){}
+    function setTimeout(fn,ms){timers.push(ms);return timers.length;} function clearTimeout(){}
+    ` + pick('refreshStatus') + `
+    var STATUS_RETRY_MAX=3,_statusRetry=0,_statusTimer=null;
+    return async function(){for(var i=0;i<5;i++)await refreshStatus();return calls;};`)(timers);
+  assert.equal(await h(), 5);
+  assert.deepEqual(timers, [3000, 6000, 9000]);
+});
+
+test('issue report cannot start while a submission is in flight', () => {
+  assert.ok(/issue-btn'\)\.disabled=[^;]*view\.busy\|\|view\.sending;/.test(html));
+  assert.ok(/function startIssue\(\)\{\s*if\([^)]*view\.busy\|\|view\.sending\)return;/.test(html));
+  assert.ok(/if\(view\.photo===p\)view\.photo=null;/.test(html));
 });
 
 test('3) updateStatus: remaining confirmations take the single status line', async () => {

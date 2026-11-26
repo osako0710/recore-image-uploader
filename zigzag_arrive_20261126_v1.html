@@ -268,10 +268,16 @@ async function updateStatus(){
 }
 async function refreshStatus(){
   if(!workerValid)return;
-  try{var v=await request({action:'arrive_status',w:worker});view.lot=v.lot||null;view.total=Number(v.total)||0;view.arrived=Number(v.arrived)||0;view.canClose=v.can_close===true;view.loaded=true;}
-  catch(error){if(error.status===403){workerValid=false;updateStatus();}if(error.status===409)view.lot=null;}
+  try{var v=await request({action:'arrive_status',w:worker});view.lot=v.lot||null;view.total=Number(v.total)||0;view.arrived=Number(v.arrived)||0;view.canClose=v.can_close===true;view.loaded=true;_statusRetry=0;}
+  catch(error){
+    if(error.status===403){workerValid=false;updateStatus();}
+    else if(error.status===409)view.lot=null;
+    // 一時的な失敗は、回数を区切って少しずつ間を空けて取り直す
+    else if(_statusRetry<STATUS_RETRY_MAX){_statusRetry++;clearTimeout(_statusTimer);_statusTimer=setTimeout(refreshStatus,Math.min(30000,3000*_statusRetry));}
+  }
   render();
 }
+var STATUS_RETRY_MAX=10,_statusRetry=0,_statusTimer=null;
 
 function setBand(kind,text){view.band=text?{kind:kind,text:text}:null;paintBand();}
 function paintBand(){
@@ -330,7 +336,7 @@ function render(){
     shots.innerHTML=view.photo.shots.map(function(s,i){return '<img src="'+s.url+'" alt="写真 '+(i+1)+'">';}).join('')+(view.photo.shots.length<MAX_SHOTS?'<button class="menu-btn" type="button" id="more-shot" style="width:auto;flex:1">もう1枚撮る</button>':'');
   }else{shots.hidden=true;shots.innerHTML='';}
   document.getElementById('manual-go').disabled=isBusy(view);
-  document.getElementById('issue-btn').disabled=!(view.last&&view.last.client_id)||!workerValid;
+  document.getElementById('issue-btn').disabled=!(view.last&&view.last.client_id)||!workerValid||view.busy||view.sending;
   var closeBtn=document.getElementById('close-btn');closeBtn.hidden=!view.canClose;
   closeBtn.disabled=!workerValid||!lot||lot.status==='closed';
   paintBand();
@@ -397,7 +403,7 @@ async function sendPhoto(){
   view.busy=true;render();
   var body={action:'arrive_photo',w:worker,client_id:p.client_id,photos:p.shots.map(function(s){return {media_type:'image/jpeg',base64:s.base64};})};
   if(p.issue)body.issue=true;
-  try{await sendOrQueue(body);pendingDone(p.client_id,'photo');view.photo=null;setBand('ok','写真を送りました。次の荷物へ');}
+  try{await sendOrQueue(body);pendingDone(p.client_id,'photo');if(view.photo===p)view.photo=null;setBand('ok','写真を送りました。次の荷物へ');}
   catch(error){setBand('error',error.status===403?BAD_URL:'送れませんでした。もう一度押してください');}
   view.busy=false;render();updateStatus();refreshStatus();
 }
@@ -411,7 +417,7 @@ function resumePending(){
   render();
 }
 function startIssue(){
-  if(!view.last||!view.last.client_id)return;
+  if(!view.last||!view.last.client_id||view.busy||view.sending)return;
   document.getElementById('more').open=false;
   view.cur=null;view.photo={client_id:view.last.client_id,issue:true,shots:[]};
   setBand('photo','破れ・中身が違う荷物の写真を撮ってください');render();
