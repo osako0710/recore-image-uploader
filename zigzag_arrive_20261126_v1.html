@@ -65,7 +65,7 @@ details{margin-top:18px;border-top:3px solid var(--line);padding-top:6px}summary
   </section>
   <details id="more"><summary>⋯</summary>
     <button id="issue-btn" class="menu-btn" type="button" disabled>破れ・中身が違う（写真を撮る）</button>
-    <button id="close-btn" class="menu-btn" type="button" hidden>この回の確認を終える</button>
+    <button id="close-btn" class="menu-btn" type="button" hidden>今回の荷物の確認を終える</button>
   </details>
 </main>
 <input id="photo-input" class="sr-only" type="file" accept="image/*" capture="environment">
@@ -440,7 +440,7 @@ function startIssue(){
 }
 async function closeLot(){
   document.getElementById('more').open=false;
-  if(!window.confirm('この回の確認を終えます。よろしいですか？'))return;
+  if(!window.confirm('今回の荷物の確認を終えます。よろしいですか？'))return;
   try{var v=await request({action:'arrive_close',w:worker});setBand('ok',v&&v.closed?'確認を終えました':'確認を終える処理を受け付けました');}
   catch(error){setBand('error',error.status===403?(error.message==='close_forbidden'?'この URL では確認を終えられません。管理者に伝えてください':BAD_URL):'終えられませんでした。電波を確かめてもう一度お試しください');}
   await refreshStatus();
