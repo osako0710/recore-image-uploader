@@ -333,7 +333,7 @@ function render(){
   var shots=document.getElementById('shots');
   if(shooting&&view.photo.shots.length){
     shots.hidden=false;
-    shots.innerHTML=view.photo.shots.map(function(s,i){return '<img src="'+s.url+'" alt="写真 '+(i+1)+'">';}).join('')+(view.photo.shots.length<MAX_SHOTS?'<button class="menu-btn" type="button" id="more-shot" style="width:auto;flex:1">もう1枚撮る</button>':'');
+    shots.innerHTML=view.photo.shots.map(function(s,i){return '<img src="'+s.url+'" alt="写真 '+(i+1)+'">';}).join('')+(view.photo.shots.length<MAX_SHOTS?'<button class="menu-btn" type="button" id="more-shot" style="width:auto;flex:1"'+(view.busy?' disabled':'')+'>もう1枚撮る</button>':'');
   }else{shots.hidden=true;shots.innerHTML='';}
   document.getElementById('manual-go').disabled=isBusy(view);
   document.getElementById('issue-btn').disabled=!(view.last&&view.last.client_id)||!workerValid||view.busy||view.sending;
@@ -391,7 +391,8 @@ async function saveCount(){
 function loadImageFile(file){return new Promise(function(resolve,reject){var url=URL.createObjectURL(file),image=new Image();image.onload=function(){URL.revokeObjectURL(url);resolve(image);};image.onerror=function(error){URL.revokeObjectURL(url);reject(error);};image.src=url;});}
 function toJpeg(image,max,quality){var scale=Math.min(1,max/Math.max(image.width,image.height)),width=Math.max(1,Math.round(image.width*scale)),height=Math.max(1,Math.round(image.height*scale)),canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;canvas.getContext('2d').drawImage(image,0,0,width,height);return canvas.toDataURL('image/jpeg',quality);}
 async function addShot(file){
-  if(!file||!view.photo||view.photo.shots.length>=MAX_SHOTS)return;
+  // 送信中は足さない。送ったあとに消えてしまうため
+  if(!file||!view.photo||view.photo.sending||view.busy||view.photo.shots.length>=MAX_SHOTS)return;
   var target=view.photo;target.loading=(target.loading||0)+1;render();
   try{var image=await loadImageFile(file);if(view.photo!==target)return;var data=toJpeg(image,1600,.8);target.shots.push({url:data,base64:data.split(',')[1]});}
   catch(error){setBand('error','写真を読み込めませんでした。もう一度撮ってください');}
@@ -400,12 +401,12 @@ async function addShot(file){
 }
 async function sendPhoto(){
   var p=view.photo;if(!p||!p.shots.length||p.loading||view.busy)return;
-  view.busy=true;render();
+  view.busy=true;p.sending=true;render();
   var body={action:'arrive_photo',w:worker,client_id:p.client_id,photos:p.shots.map(function(s){return {media_type:'image/jpeg',base64:s.base64};})};
   if(p.issue)body.issue=true;
   try{await sendOrQueue(body);pendingDone(p.client_id,'photo');if(view.photo===p)view.photo=null;setBand('ok','写真を送りました。次の荷物へ');}
   catch(error){setBand('error',error.status===403?BAD_URL:'送れませんでした。もう一度押してください');}
-  view.busy=false;render();updateStatus();refreshStatus();
+  p.sending=false;view.busy=false;render();updateStatus();refreshStatus();
 }
 function resumePending(){
   if(isBusy(view))return;
@@ -419,6 +420,8 @@ function resumePending(){
 function startIssue(){
   if(!view.last||!view.last.client_id||view.busy||view.sending)return;
   document.getElementById('more').open=false;
+  // 読み込み直しても続きから撮れるよう、写真の確認を先に保存する（同じ荷物の写真待ちは置き換える）
+  pendingSave(addPending(pendingLoad(),{kind:'photo',client_id:view.last.client_id,issue:true,code:view.last.code||''}));
   view.cur=null;view.photo={client_id:view.last.client_id,issue:true,shots:[]};
   setBand('photo','破れ・中身が違う荷物の写真を撮ってください');render();
 }
@@ -562,7 +565,7 @@ document.getElementById('items').addEventListener('click',function(event){
   if(b.dataset.step!==undefined){view.cur.counts[it.key]=stepCount(view.cur.counts[it.key],b.dataset.step);render();return;}
   view.cur.counts[it.key]=Number(b.dataset.n);render();
 });
-document.getElementById('shots').addEventListener('click',function(event){if(event.target.id==='more-shot')document.getElementById('photo-input').click();});
+document.getElementById('shots').addEventListener('click',function(event){if(event.target.id==='more-shot'&&!view.busy)document.getElementById('photo-input').click();});
 document.getElementById('photo-input').addEventListener('change',function(){var file=this.files&&this.files[0];this.value='';addShot(file);});
 document.getElementById('issue-btn').addEventListener('click',startIssue);
 document.getElementById('close-btn').addEventListener('click',closeLot);

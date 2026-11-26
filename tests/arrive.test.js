@@ -215,6 +215,30 @@ test('issue report cannot start while a submission is in flight', () => {
   assert.ok(/if\(view\.photo===p\)view\.photo=null;/.test(html));
 });
 
+test('extra photos cannot be added while an upload is in flight', () => {
+  assert.ok(/id="more-shot"[^>]*'\+\(view\.busy\?' disabled':''\)/.test(html));
+  assert.ok(/function addShot\(file\)\{[^}]*view\.photo\.sending\|\|view\.busy/.test(html));
+  assert.ok(/event\.target\.id==='more-shot'&&!view\.busy/.test(html));
+});
+
+test('manually started issue report is saved before the camera flow', () => {
+  const saved = [];
+  const h = new Function('saved', `
+    var view={last:{client_id:'c1',code:'PK1'},busy:false,sending:false,cur:null,photo:null};
+    var store=[{kind:'photo',client_id:'c1',issue:false,code:'PK1'}];
+    function pendingLoad(){return store.slice();}
+    function pendingSave(l){store=l;saved.push(l);}
+    function removePending(list,id,kind){return list.filter(function(r){return !(r.client_id===id&&r.kind===kind);});}
+    function addPending(list,rec){return removePending(list,rec.client_id,rec.kind).concat([rec]);}
+    var document={getElementById:function(){return {open:true};}};
+    function setBand(){} function render(){}
+    ` + pick('startIssue') + `
+    startIssue();return view;`);
+  const view = h(saved);
+  assert.equal(view.photo.issue, true);
+  assert.deepEqual(saved.at(-1), [{ kind: 'photo', client_id: 'c1', issue: true, code: 'PK1' }]);
+});
+
 test('3) updateStatus: remaining confirmations take the single status line', async () => {
   const el = { className: '', textContent: '' };
   const h = new Function('el', `
