@@ -330,7 +330,7 @@ function render(){
     html+='</section>';
   }else{
     html+='<section class="card"><div class="step"><span>1</span>袋のラベル</div>';
-    if(state.stage==='label')html+='<p class="hint">袋に付いたバーコードかQRコードを読みます。</p><div class="links"><button class="text-link" type="button" data-action="no-label">ラベルが無い</button><button class="text-link" type="button" data-action="mine">今日の登録を見る</button></div>';
+    if(state.stage==='label')html+='<p class="hint">袋に付いたバーコードかQRコードを読みます。</p><div class="links"><button class="text-link" type="button" data-action="no-label">ラベルが無い</button><button class="text-link" type="button" data-action="mine">今日の登録を見る</button><a class="text-link" href="arrive.html?w='+encodeURIComponent(worker)+(mock?'&mock=1':'')+'">届いた荷物を確認する</a></div>';
     else html+=(state.label?'<p class="hint">読み取った番号</p><div class="label-no">'+esc(state.label)+'</div>':'<h2>ラベルなしで進めます</h2>')+'<button class="text-link" type="button" data-action="relabel"'+(state.draftBusy?' disabled':'')+'>'+(state.label?'ラベルを読み直す':'ラベルを読む')+'</button>';
     html+='</section>';
     if(state.stage!=='label'){
