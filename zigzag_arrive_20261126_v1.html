@@ -212,7 +212,8 @@ async function queuePut(body){var row=Object.assign({qid:queueId(body)},body);va
 async function queueAll(){var db=await openQueue();var rows=await new Promise(function(resolve,reject){var call=db.transaction(DB_STORE).objectStore(DB_STORE).getAll();call.onsuccess=function(){resolve(call.result||[]);};call.onerror=function(){reject(call.error);};});db.close();return dedupeQueue(rows);}
 async function queueDelete(id){var db=await openQueue();await new Promise(function(resolve,reject){var tx=db.transaction(DB_STORE,'readwrite');tx.objectStore(DB_STORE).delete(id);tx.oncomplete=resolve;tx.onerror=function(){reject(tx.error);};});db.close();}
 async function queueCount(){try{return (await queueAll()).length;}catch(error){return 0;}}
-function retryable(error){return !error.status||error.status>=500||error.status===429||error.status===408;}
+// 写真の枚数の上限（photo_limit）は送り直しても通らないので、送信待ちに入れない
+function retryable(error){return !error.status||error.status>=500||(error.status===429&&error.message!=='photo_limit')||error.status===408;}
 // 送る。電波が無い・窓口の不調なら送信待ちに入れる。返り値は窓口の答え（送信待ちなら null）
 async function sendOrQueue(body){
   try{return await request(body);}
@@ -245,6 +246,8 @@ async function flushQueue(){
         // 権限が無くなったときは消さずに止め、使えるようになってから送り直す
         if(error.status===403){workerValid=false;throw error;}
         if(retryable(error))throw error;
+        // 写真がもう上限まである荷物は、撮り直しを求めない
+        if(error.message==='photo_limit')pendingDone(row.client_id,'photo');
       }
       await queueDelete(row.qid);
     });
@@ -405,7 +408,10 @@ async function sendPhoto(){
   var body={action:'arrive_photo',w:worker,client_id:p.client_id,photos:p.shots.map(function(s){return {media_type:'image/jpeg',base64:s.base64};})};
   if(p.issue)body.issue=true;
   try{await sendOrQueue(body);pendingDone(p.client_id,'photo');if(view.photo===p)view.photo=null;setBand('ok','写真を送りました。次の荷物へ');}
-  catch(error){setBand('error',error.status===403?BAD_URL:'送れませんでした。もう一度押してください');}
+  catch(error){
+    if(error.message==='photo_limit'){pendingDone(p.client_id,'photo');if(view.photo===p)view.photo=null;setBand('ok','この荷物の写真はもう十分あります。次の荷物へ');}
+    else setBand('error',error.status===403?BAD_URL:'送れませんでした。もう一度押してください');
+  }
   p.sending=false;view.busy=false;render();updateStatus();refreshStatus();
 }
 function resumePending(){

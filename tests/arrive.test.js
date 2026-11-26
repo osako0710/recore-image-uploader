@@ -153,6 +153,27 @@ test('1) replayed photo upload clears the confirmation its arrival created; code
   assert.deepEqual(api.pendingLoad().map((r) => r.kind + ':' + r.client_id + ':' + r.code), ['photo:p2:PK8']);
 });
 
+test('1) photo_limit is not retried and clears the photo confirmation', async () => {
+  const h = harness(
+    ['safeStorageGet', 'safeStorageSet', 'pendingLoad', 'pendingSave', 'pendingDone', 'addPending', 'removePending', 'pendingFromReply', 'dedupeQueue', 'flushQueueList', 'queueId', 'flushQueue', 'retryable'],
+    `var localStorage=this.ls;var PENDING_KEY='k';var _flushing=false,_retryStep=0,_retryTimer=0,workerValid=true;
+     var navigator={onLine:true};var deleted=[];
+     var rows=[{qid:'arrive_photo!:q1',action:'arrive_photo',client_id:'q1'}];
+     async function queueAll(){return rows;} async function queueDelete(q){deleted.push(q);} async function queueCount(){return 0;}
+     async function request(b){var e=new Error('photo_limit');e.status=429;throw e;}
+     function scheduleRetry(){} async function refreshStatus(){} async function updateStatus(){}`,
+    '{flushQueue,pendingLoad,pendingSave,retryable,deleted}'
+  );
+  const api = h.call({ ls: fakeStorage() });
+  api.pendingSave([{ kind: 'photo', client_id: 'q1' }]);
+  await api.flushQueue();
+  assert.deepEqual(api.deleted, ['arrive_photo!:q1']);
+  assert.deepEqual(api.pendingLoad(), []);
+  const err = (status, message) => Object.assign(new Error(message), { status });
+  assert.equal(api.retryable(err(429, 'photo_limit')), false);
+  assert.equal(api.retryable(err(429, 'rate_limited')), true);
+});
+
 test('1) withCode names the parcel; mock mode uses its own storage', () => {
   const { withCode } = harness(['withCode'], '', '{withCode}')();
   assert.equal(withCode('写真を撮ってください', 'PK9'), '番号 PK9 の荷物です。写真を撮ってください');
