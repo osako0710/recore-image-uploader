@@ -258,3 +258,14 @@ test('visible text has no internal words', () => {
     assert.ok(!text.includes(w), w);
   }
 });
+
+test('権限が無くなったときは送信待ちを消さずに止める', () => {
+  assert.ok(html.includes('if(error.status===403){workerValid=false;throw error;}'));
+});
+
+test('写真の読み込み中は送れない', () => {
+  assert.ok(html.includes('target.loading=(target.loading||0)+1'));
+  assert.ok(html.includes('finally{target.loading--;}'));
+  assert.ok(html.includes('!p.shots.length||p.loading||view.busy'));
+  assert.ok(html.includes("else if(view.photo.loading){label='写真を読み込んでいます';action='none';enabled=false;}"));
+});

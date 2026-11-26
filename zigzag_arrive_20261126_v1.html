@@ -241,7 +241,11 @@ async function flushQueue(){
         if(row.action==='arrive_count')pendingDone(row.client_id,'count');
         if(row.action==='arrive_photo')pendingDone(row.client_id,'photo');
       }
-      catch(error){if(retryable(error))throw error;if(error.status===403)workerValid=false;}
+      catch(error){
+        // 権限が無くなったときは消さずに止め、使えるようになってから送り直す
+        if(error.status===403){workerValid=false;throw error;}
+        if(retryable(error))throw error;
+      }
       await queueDelete(row.qid);
     });
     failed=rest.length>0;
@@ -288,6 +292,7 @@ function render(){
   }else if(shooting){
     var n=view.photo.shots.length;
     if(n===0){label='写真を撮る';action='shoot';enabled=!view.busy;}
+    else if(view.photo.loading){label='写真を読み込んでいます';action='none';enabled=false;}
     else{label='写真を送る（'+n+'枚）';action='send-photo';enabled=!view.busy;}
   }else if(pendingLoad().length){
     label='確認に進む（'+pendingLoad().length+'件）';action='resume';enabled=workerValid&&!view.sending;
@@ -381,13 +386,14 @@ function loadImageFile(file){return new Promise(function(resolve,reject){var url
 function toJpeg(image,max,quality){var scale=Math.min(1,max/Math.max(image.width,image.height)),width=Math.max(1,Math.round(image.width*scale)),height=Math.max(1,Math.round(image.height*scale)),canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;canvas.getContext('2d').drawImage(image,0,0,width,height);return canvas.toDataURL('image/jpeg',quality);}
 async function addShot(file){
   if(!file||!view.photo||view.photo.shots.length>=MAX_SHOTS)return;
-  var target=view.photo;
+  var target=view.photo;target.loading=(target.loading||0)+1;render();
   try{var image=await loadImageFile(file);if(view.photo!==target)return;var data=toJpeg(image,1600,.8);target.shots.push({url:data,base64:data.split(',')[1]});}
   catch(error){setBand('error','写真を読み込めませんでした。もう一度撮ってください');}
+  finally{target.loading--;}
   render();
 }
 async function sendPhoto(){
-  var p=view.photo;if(!p||!p.shots.length||view.busy)return;
+  var p=view.photo;if(!p||!p.shots.length||p.loading||view.busy)return;
   view.busy=true;render();
   var body={action:'arrive_photo',w:worker,client_id:p.client_id,photos:p.shots.map(function(s){return {media_type:'image/jpeg',base64:s.base64};})};
   if(p.issue)body.issue=true;
