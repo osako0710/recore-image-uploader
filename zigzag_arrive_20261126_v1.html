@@ -87,7 +87,7 @@ details{margin-top:18px;border-top:3px solid var(--line);padding-top:6px}summary
 <script>
 'use strict';
 var API='https://pqfsanwopptslgdrdebn.supabase.co/functions/v1/zigzag-shoot';
-var DB_NAME='zigzag_arrive_v1';
+var DB_NAME=isMockMode(location.search)?'zigzag_arrive_mock_v1':'zigzag_arrive_v1';
 var DB_STORE='pending';
 var MAX_SHOTS=3;
 var SCAN_FORMATS=['code_128','code_39','code_93','ean_13','ean_8','itf','codabar','qr_code'];
@@ -98,7 +98,7 @@ var mock=isMockMode(location.search);
 var workerValid=mock||/^[A-Za-z0-9]{8}$/.test(worker);
 var BAD_URL='この URL は使えません。担当者に連絡してください';
 var view={lot:null,total:0,arrived:0,loaded:false,band:null,cur:null,photo:null,last:null,busy:false,sending:false};
-var PENDING_KEY='zigzag_arrive_confirm';
+var PENDING_KEY=mock?'zigzag_arrive_confirm_mock':'zigzag_arrive_confirm';
 var _retryTimer=0,_retryStep=0;
 var _mockArrived={};
 
@@ -139,11 +139,14 @@ function retryDelay(step){var steps=[5000,15000,30000,60000];return steps[Math.m
 // 送り直した答えが確認を求めているとき、残っている確認の記録を返す
 function pendingFromReply(row,value){
   if(!row||row.action!=='arrive'||!value)return null;
-  if(value.result==='arrived'&&value.need_count&&Array.isArray(value.items)&&value.items.length)return {kind:'count',client_id:row.client_id,items:value.items};
-  if(value.result==='not_listed')return {kind:'photo',client_id:row.client_id,issue:false};
-  if(value.result==='issue')return {kind:'photo',client_id:row.client_id,issue:true};
+  var code=row.code||'';
+  if(value.result==='arrived'&&value.need_count&&Array.isArray(value.items)&&value.items.length)return {kind:'count',client_id:row.client_id,items:value.items,code:code};
+  if(value.result==='not_listed')return {kind:'photo',client_id:row.client_id,issue:false,code:code};
+  if(value.result==='issue')return {kind:'photo',client_id:row.client_id,issue:true,code:code};
   return null;
 }
+// 確認を再開するとき、どの荷物かを番号で示す
+function withCode(text,code){return code?'番号 '+code+' の荷物です。'+text:text;}
 function addPending(list,rec){return removePending(list,rec.client_id,rec.kind).concat([rec]);}
 function removePending(list,clientId,kind){return list.filter(function(r){return !(r&&r.client_id===clientId&&r.kind===kind);});}
 function fmt(n){return Number(n||0).toLocaleString('en-US');}
@@ -232,7 +235,12 @@ async function flushQueue(){
     var rows=await queueAll();
     var rest=await flushQueueList(rows,async function(row){
       var body=Object.assign({},row);delete body.qid;
-      try{var value=await request(body);var rec=pendingFromReply(row,value);if(rec)pendingSave(addPending(pendingLoad(),rec));}
+      try{
+        var value=await request(body);var rec=pendingFromReply(row,value);if(rec)pendingSave(addPending(pendingLoad(),rec));
+        // 送信待ちだった数・写真を送れたら、残っている確認を消す
+        if(row.action==='arrive_count')pendingDone(row.client_id,'count');
+        if(row.action==='arrive_photo')pendingDone(row.client_id,'photo');
+      }
       catch(error){if(retryable(error))throw error;if(error.status===403)workerValid=false;}
       await queueDelete(row.qid);
     });
@@ -342,6 +350,8 @@ async function doArriveSend(body){
   if(!value){setBand('ok','受け付けました。電波が戻ると確認します');render();updateStatus();return {keep:true};}
   var rv=resultView(value.result,!!value.need_count);
   setBand(rv.kind,rv.text);
+  // 数える・写真を撮る確認は、閉じたり読み込み直したりしても残るよう先に保存する
+  var follow=pendingFromReply(body,value);if(follow)pendingSave(addPending(pendingLoad(),follow));
   if(rv.kind==='count'&&Array.isArray(value.items)&&value.items.length)view.cur={client_id:body.client_id,items:value.items,counts:{},saved:false};
   else if(rv.kind==='count'){setBand('ok','OK 次の荷物へ');rv={keep:true};}
   if(rv.kind==='photo')view.photo={client_id:body.client_id,issue:value.result==='issue',shots:[]};
@@ -388,9 +398,10 @@ async function sendPhoto(){
 function resumePending(){
   if(isBusy(view))return;
   var rec=pendingLoad()[0];if(!rec)return;
-  view.last={client_id:rec.client_id,code:''};
-  if(rec.kind==='count'){view.cur={client_id:rec.client_id,items:rec.items,counts:{},saved:false};setBand('count','開けて数を数えてください');}
-  else{view.photo={client_id:rec.client_id,issue:!!rec.issue,shots:[]};setBand('photo',rec.issue?'要確認の荷物です。写真を撮ってください':'リストにない荷物です。写真を撮ってください');}
+  var code=rec.code||'';
+  view.last={client_id:rec.client_id,code:code};
+  if(rec.kind==='count'){view.cur={client_id:rec.client_id,items:rec.items,counts:{},saved:false};setBand('count',withCode('開けて数を数えてください',code));}
+  else{view.photo={client_id:rec.client_id,issue:!!rec.issue,shots:[]};setBand('photo',withCode(rec.issue?'要確認です。写真を撮ってください':'リストにありません。写真を撮ってください',code));}
   render();
 }
 function startIssue(){

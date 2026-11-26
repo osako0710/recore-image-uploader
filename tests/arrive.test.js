@@ -134,6 +134,34 @@ test('1) pendingFromReply ignores plain arrivals and other actions; add/remove d
   assert.equal(h.removePending(l, 'x', 'photo').length, 1);
 });
 
+test('1) replayed photo upload clears the confirmation its arrival created; code is kept', async () => {
+  const replies = { p1: { result: 'not_listed', need_count: false } };
+  const h = harness(
+    ['safeStorageGet', 'safeStorageSet', 'pendingLoad', 'pendingSave', 'pendingDone', 'addPending', 'removePending', 'pendingFromReply', 'dedupeQueue', 'flushQueueList', 'queueId', 'flushQueue'],
+    `var localStorage=this.ls;var PENDING_KEY='k';var _flushing=false,_retryStep=0,_retryTimer=0,workerValid=true;
+     var navigator={onLine:true};var deleted=[];
+     var rows=[{qid:'arrive:p1',action:'arrive',client_id:'p1',code:'PK9'},{qid:'arrive_photo!:p1',action:'arrive_photo',client_id:'p1',issue:true},
+               {qid:'arrive:p2',action:'arrive',client_id:'p2',code:'PK8'}];
+     async function queueAll(){return rows;} async function queueDelete(q){deleted.push(q);} async function queueCount(){return 0;}
+     async function request(b){return this_replies[b.client_id]||{result:'issue'};}
+     function retryable(e){return !e.status;} function scheduleRetry(){} async function refreshStatus(){} async function updateStatus(){}`,
+    '{flushQueue,pendingLoad}'
+  );
+  const g = new Function('this_replies', 'return (' + h.toString().replace(/^function anonymous\(\n\) \{\n/, 'function(){') + ')')(replies);
+  const api = g.call({ ls: fakeStorage() });
+  await api.flushQueue();
+  assert.deepEqual(api.pendingLoad().map((r) => r.kind + ':' + r.client_id + ':' + r.code), ['photo:p2:PK8']);
+});
+
+test('1) withCode names the parcel; mock mode uses its own storage', () => {
+  const { withCode } = harness(['withCode'], '', '{withCode}')();
+  assert.equal(withCode('写真を撮ってください', 'PK9'), '番号 PK9 の荷物です。写真を撮ってください');
+  assert.equal(withCode('写真を撮ってください', ''), '写真を撮ってください');
+  assert.match(html, /zigzag_arrive_mock_v1/);
+  assert.match(html, /zigzag_arrive_confirm_mock/);
+  assert.ok(/var follow=pendingFromReply\(body,value\)/.test(html), 'online follow-up is persisted');
+});
+
 test('2) retryDelay grows 5/15/30/60 seconds and stays at 60', () => {
   const { retryDelay } = harness(['retryDelay'], '', '{retryDelay}')();
   assert.deepEqual([0, 1, 2, 3, 4, 9].map(retryDelay), [5000, 15000, 30000, 60000, 60000, 60000]);
