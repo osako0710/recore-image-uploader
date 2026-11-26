@@ -32,6 +32,8 @@ main{width:100%;max-width:560px;margin:0 auto;padding:12px}
 .nums button{flex:0 0 calc(25% - 6px);min-height:64px;border:3px solid var(--line);border-radius:12px;background:#fff;font-size:26px;font-weight:800}
 .nums button.listq{border-color:var(--main);color:var(--main)}
 .nums button.on{border-color:var(--text);background:var(--text);color:#fff}
+.nums button.other{flex:1 0 100%}
+.step{display:flex;align-items:center;gap:6px}.step .big{flex:1;min-width:0;text-align:center;font-size:44px;font-weight:800;line-height:1.1;font-variant-numeric:tabular-nums}.step button{flex:0 0 52px;min-height:64px;padding:0;border:3px solid var(--text);border-radius:12px;background:#fff;font-size:24px;font-weight:800}.step-back{margin-top:6px}
 .shots{display:flex;gap:8px;margin:12px 0}.shots img{width:96px;height:96px;object-fit:cover;border-radius:12px;background:#ece9e2}.shots[hidden]{display:none}
 details{margin-top:18px;border-top:3px solid var(--line);padding-top:6px}summary{min-height:48px;padding:12px 0;color:var(--main);font-size:20px;font-weight:800;cursor:pointer}
 .menu-btn{display:block;width:100%;min-height:56px;margin:8px 0;border:3px solid var(--text);border-radius:12px;background:#fff;font-size:17px;font-weight:700}
@@ -78,7 +80,7 @@ details{margin-top:18px;border-top:3px solid var(--line);padding-top:6px}summary
   <form id="manual-form" class="manual" hidden novalidate>
     <input id="manual-no" type="text" inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="64" placeholder="ラベルの番号" aria-label="ラベルの番号">
     <p id="manual-error" class="manual-error" role="alert"></p>
-    <button type="submit" class="manual-go">この番号で進む</button>
+    <button id="manual-go" type="submit" class="manual-go">この番号で進む</button>
   </form>
 </section>
 <script src="vendor/barcode-detector_3.2.2/ponyfill.js"></script>
@@ -95,7 +97,9 @@ var worker=params.get('w')||'';
 var mock=isMockMode(location.search);
 var workerValid=mock||/^[A-Za-z0-9]{8}$/.test(worker);
 var BAD_URL='この URL は使えません。担当者に連絡してください';
-var view={lot:null,total:0,arrived:0,loaded:false,band:null,cur:null,photo:null,last:null,busy:false};
+var view={lot:null,total:0,arrived:0,loaded:false,band:null,cur:null,photo:null,last:null,busy:false,sending:false};
+var PENDING_KEY='zigzag_arrive_confirm';
+var _retryTimer=0,_retryStep=0;
 var _mockArrived={};
 
 function esc(value){return String(value==null?'':value).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
@@ -126,6 +130,22 @@ function countOptions(qty){
 function allCounted(items,counts){
   return Array.isArray(items)&&items.length>0&&items.every(function(it){return typeof counts[it.key]==='number';});
 }
+// 数の増減（0〜999の整数）
+function stepCount(n,d){n=Math.floor(Number(n)||0)+Math.floor(Number(d)||0);return Math.max(0,Math.min(999,n));}
+// 処理中の印。送信中・数える画面・写真の画面が出ているあいだは次の読み取りを受け付けない
+function isBusy(v){return !!(v.busy||v.sending||(v.cur&&!v.cur.saved)||v.photo);}
+// 再送の間隔（5秒→15秒→30秒→60秒が上限）
+function retryDelay(step){var steps=[5000,15000,30000,60000];return steps[Math.max(0,Math.min(Math.floor(Number(step)||0),steps.length-1))];}
+// 送り直した答えが確認を求めているとき、残っている確認の記録を返す
+function pendingFromReply(row,value){
+  if(!row||row.action!=='arrive'||!value)return null;
+  if(value.result==='arrived'&&value.need_count&&Array.isArray(value.items)&&value.items.length)return {kind:'count',client_id:row.client_id,items:value.items};
+  if(value.result==='not_listed')return {kind:'photo',client_id:row.client_id,issue:false};
+  if(value.result==='issue')return {kind:'photo',client_id:row.client_id,issue:true};
+  return null;
+}
+function addPending(list,rec){return removePending(list,rec.client_id,rec.kind).concat([rec]);}
+function removePending(list,clientId,kind){return list.filter(function(r){return !(r&&r.client_id===clientId&&r.kind===kind);});}
 function fmt(n){return Number(n||0).toLocaleString('en-US');}
 function queueId(body){return body.action+(body.issue?'!':'')+':'+body.client_id;}
 function dedupeQueue(items){
@@ -147,6 +167,9 @@ function makeUuid(){
 }
 function safeStorageGet(key,fallback){try{var value=localStorage.getItem(key);return value===null?fallback:value;}catch(error){return fallback;}}
 function safeStorageSet(key,value){try{localStorage.setItem(key,value);}catch(error){}}
+function pendingLoad(){try{var v=JSON.parse(safeStorageGet(PENDING_KEY,'[]'));return Array.isArray(v)?v.filter(Boolean):[];}catch(error){return [];}}
+function pendingSave(list){safeStorageSet(PENDING_KEY,JSON.stringify(list));}
+function pendingDone(clientId,kind){pendingSave(removePending(pendingLoad(),clientId,kind));}
 
 function mockItems(code){
   if(code==='A001')return [{key:'k1',name:'ダミー商品A',quantity:1}];
@@ -194,33 +217,47 @@ async function sendOrQueue(body){
     if(error.status===403)workerValid=false;
     if(!retryable(error))throw error;
     try{await queuePut(body);}catch(e2){throw error;}
+    scheduleRetry();
     return null;
   }
 }
+function scheduleRetry(){
+  if(_retryTimer)return;
+  _retryTimer=setTimeout(function(){_retryTimer=0;flushQueue();},retryDelay(_retryStep));
+}
 async function flushQueue(){
   if(_flushing||navigator.onLine===false||!workerValid)return;
-  _flushing=true;
+  _flushing=true;var failed=false;
   try{
     var rows=await queueAll();
-    await flushQueueList(rows,async function(row){
+    var rest=await flushQueueList(rows,async function(row){
       var body=Object.assign({},row);delete body.qid;
-      try{await request(body);}
+      try{var value=await request(body);var rec=pendingFromReply(row,value);if(rec)pendingSave(addPending(pendingLoad(),rec));}
       catch(error){if(retryable(error))throw error;if(error.status===403)workerValid=false;}
       await queueDelete(row.qid);
     });
-  }catch(error){}finally{_flushing=false;await refreshStatus();updateStatus();}
+    failed=rest.length>0;
+  }catch(error){failed=true;}finally{
+    _flushing=false;
+    if(!failed)_retryStep=0;
+    if(workerValid&&(failed||(await queueCount())>0)){if(failed)_retryStep++;scheduleRetry();}
+    await refreshStatus();updateStatus();
+  }
 }
 async function updateStatus(){
   var el=document.getElementById('status');
   if(!workerValid){el.className='status bad';el.textContent=BAD_URL;return;}
+  var left=pendingLoad().length;
+  if(left){el.className='status warn';el.textContent='確認が '+left+' 件残っています';return;}
   var pending=await queueCount();
+  if(!workerValid){el.className='status bad';el.textContent=BAD_URL;return;}
   if(pending){el.className='status warn';el.textContent='送信待ち '+pending+' 件（電波が戻ると送ります）';return;}
   el.className='status';el.textContent='保存済み ✓';
 }
 async function refreshStatus(){
   if(!workerValid)return;
   try{var v=await request({action:'arrive_status',w:worker});view.lot=v.lot||null;view.total=Number(v.total)||0;view.arrived=Number(v.arrived)||0;view.loaded=true;}
-  catch(error){if(error.status===403)workerValid=false;if(error.status===409)view.lot=null;}
+  catch(error){if(error.status===403){workerValid=false;updateStatus();}if(error.status===409)view.lot=null;}
   render();
 }
 
@@ -244,6 +281,8 @@ function render(){
     var n=view.photo.shots.length;
     if(n===0){label='写真を撮る';action='shoot';enabled=!view.busy;}
     else{label='写真を送る（'+n+'枚）';action='send-photo';enabled=!view.busy;}
+  }else if(pendingLoad().length){
+    label='確認に進む（'+pendingLoad().length+'件）';action='resume';enabled=workerValid&&!view.sending;
   }
   primary.textContent=label;primary.dataset.action=action;primary.disabled=!enabled;
   var total=document.getElementById('total');
@@ -255,11 +294,19 @@ function render(){
   var html='';
   if(counting){
     view.cur.items.forEach(function(it,i){
-      html+='<div class="item"><div class="nm">'+esc(it.name)+'</div><div class="want">リスト '+esc(it.quantity)+' 個</div><div class="nums">';
+      html+='<div class="item"><div class="nm">'+esc(it.name)+'</div><div class="want">リスト '+esc(it.quantity)+' 個</div>';
+      if(view.cur.other&&view.cur.other[it.key]){
+        var cn=view.cur.counts[it.key];
+        html+='<div class="step"><button type="button" data-item="'+i+'" data-step="-10" aria-label="10 減らす">−10</button><button type="button" data-item="'+i+'" data-step="-1" aria-label="1 減らす">−1</button><div class="big">'+cn+'</div><button type="button" data-item="'+i+'" data-step="1" aria-label="1 増やす">+1</button><button type="button" data-item="'+i+'" data-step="10" aria-label="10 増やす">+10</button></div>';
+        html+='<button type="button" class="text-link step-back" data-item="'+i+'" data-other="0">ボタンから選ぶ</button></div>';
+        return;
+      }
+      html+='<div class="nums">';
       countOptions(it.quantity).forEach(function(n){
         var cls=(n===Number(it.quantity)?'listq':'')+(view.cur.counts[it.key]===n?' on':'');
         html+='<button type="button" class="'+cls+'" data-item="'+i+'" data-n="'+n+'">'+n+'</button>';
       });
+      html+='<button type="button" class="other" data-item="'+i+'" data-other="1">ほかの数</button>';
       html+='</div></div>';
     });
   }
@@ -269,6 +316,7 @@ function render(){
     shots.hidden=false;
     shots.innerHTML=view.photo.shots.map(function(s,i){return '<img src="'+s.url+'" alt="写真 '+(i+1)+'">';}).join('')+(view.photo.shots.length<MAX_SHOTS?'<button class="menu-btn" type="button" id="more-shot" style="width:auto;flex:1">もう1枚撮る</button>':'');
   }else{shots.hidden=true;shots.innerHTML='';}
+  document.getElementById('manual-go').disabled=isBusy(view);
   document.getElementById('issue-btn').disabled=!(view.last&&view.last.client_id)||!workerValid;
   document.getElementById('close-btn').disabled=!workerValid||!lot||lot.status==='closed';
   paintBand();
@@ -278,7 +326,10 @@ function render(){
 async function doArrive(code){
   var body={action:'arrive',w:worker,client_id:makeUuid(),code:code};
   view.last={client_id:body.client_id,code:code};
-  view.cur=null;view.photo=null;
+  view.cur=null;view.photo=null;view.sending=true;render();
+  try{return await doArriveSend(body);}finally{view.sending=false;render();}
+}
+async function doArriveSend(body){
   var value;
   try{value=await sendOrQueue(body);}
   catch(error){
@@ -299,6 +350,7 @@ async function doArrive(code){
 }
 async function onScanned(raw){
   var code=normArrive(raw);if(!code)return true;
+  if(isBusy(view))return true;
   var now=Date.now();
   if(_lastRead.code===code&&now-_lastRead.at<5000)return true;
   _lastRead={code:code,at:now};
@@ -310,7 +362,7 @@ async function saveCount(){
   var cur=view.cur;if(!cur||view.busy||!allCounted(cur.items,cur.counts))return;
   view.busy=true;render();
   var body={action:'arrive_count',w:worker,client_id:cur.client_id,counts:cur.items.map(function(it){return {key:it.key,n:cur.counts[it.key]};})};
-  try{await sendOrQueue(body);cur.saved=true;view.cur=null;setBand('ok','数を保存しました。次の荷物へ');}
+  try{await sendOrQueue(body);pendingDone(cur.client_id,'count');cur.saved=true;view.cur=null;setBand('ok','数を保存しました。次の荷物へ');}
   catch(error){setBand('error',error.status===403?BAD_URL:'保存できませんでした。もう一度押してください');}
   view.busy=false;render();updateStatus();refreshStatus();
 }
@@ -328,9 +380,17 @@ async function sendPhoto(){
   view.busy=true;render();
   var body={action:'arrive_photo',w:worker,client_id:p.client_id,photos:p.shots.map(function(s){return {media_type:'image/jpeg',base64:s.base64};})};
   if(p.issue)body.issue=true;
-  try{await sendOrQueue(body);view.photo=null;setBand('ok','写真を送りました。次の荷物へ');}
+  try{await sendOrQueue(body);pendingDone(p.client_id,'photo');view.photo=null;setBand('ok','写真を送りました。次の荷物へ');}
   catch(error){setBand('error',error.status===403?BAD_URL:'送れませんでした。もう一度押してください');}
   view.busy=false;render();updateStatus();refreshStatus();
+}
+function resumePending(){
+  if(isBusy(view))return;
+  var rec=pendingLoad()[0];if(!rec)return;
+  view.last={client_id:rec.client_id,code:''};
+  if(rec.kind==='count'){view.cur={client_id:rec.client_id,items:rec.items,counts:{},saved:false};setBand('count','開けて数を数えてください');}
+  else{view.photo={client_id:rec.client_id,issue:!!rec.issue,shots:[]};setBand('photo',rec.issue?'要確認の荷物です。写真を撮ってください':'リストにない荷物です。写真を撮ってください');}
+  render();
 }
 function startIssue(){
   if(!view.last||!view.last.client_id)return;
@@ -409,7 +469,7 @@ function confirmRead(last,raw){
 }
 function scanTick(){
   var cam=_cam;if(!cam)return;var video=cam.video;
-  if(video.readyState<2){cam.timer=setTimeout(scanTick,200);return;}
+  if(video.readyState<2||isBusy(view)){cam.timer=setTimeout(scanTick,200);return;}
   cam.detector.detect(video).then(function(found){
     if(_cam!==cam)return;
     var box=video.videoWidth&&video.clientWidth?guideBox(video.videoWidth,video.videoHeight,video.clientWidth,video.clientHeight):null;
@@ -465,10 +525,17 @@ document.getElementById('primary').addEventListener('click',function(){
   else if(a==='count')saveCount();
   else if(a==='shoot')document.getElementById('photo-input').click();
   else if(a==='send-photo')sendPhoto();
+  else if(a==='resume')resumePending();
 });
 document.getElementById('items').addEventListener('click',function(event){
   var b=event.target.closest('button[data-item]');if(!b||!view.cur||view.busy)return;
   var it=view.cur.items[Number(b.dataset.item)];if(!it)return;
+  if(b.dataset.other!==undefined){
+    view.cur.other=view.cur.other||{};view.cur.other[it.key]=b.dataset.other==='1';
+    if(b.dataset.other==='1'&&typeof view.cur.counts[it.key]!=='number')view.cur.counts[it.key]=Math.max(0,Math.min(999,Math.floor(Number(it.quantity)||0)));
+    render();return;
+  }
+  if(b.dataset.step!==undefined){view.cur.counts[it.key]=stepCount(view.cur.counts[it.key],b.dataset.step);render();return;}
   view.cur.counts[it.key]=Number(b.dataset.n);render();
 });
 document.getElementById('shots').addEventListener('click',function(event){if(event.target.id==='more-shot')document.getElementById('photo-input').click();});
@@ -479,7 +546,7 @@ document.getElementById('intro-close').addEventListener('click',function(){safeS
 document.getElementById('scan-close').addEventListener('click',function(){closeScan();refreshStatus();});
 document.getElementById('manual-open').addEventListener('click',function(){showManual('');document.getElementById('manual-no').focus();});
 document.getElementById('manual-form').addEventListener('submit',async function(event){
-  event.preventDefault();var input=document.getElementById('manual-no'),code=normArrive(input.value);
+  event.preventDefault();if(isBusy(view))return;var input=document.getElementById('manual-no'),code=normArrive(input.value);
   if(!code){document.getElementById('manual-error').textContent='ラベルの番号を入力してください';return;}
   input.blur();input.value='';
   var r=await doArrive(code);
